@@ -48,16 +48,16 @@ window.makeMeetings = function ({ $, esc, store, incidents, PRI, pill, fmt, toas
   function card(m) {
     const rec = recordings(m).length, ls = liveSessions(m).length;
     const ms = media.get(m.id), recording = ms && ms.state === 'recording';
-    const badge = m.status === 'live' ? '<span class="mm-b live">Live</span><span class="mm-b link" title="VOXA is not in the call. It only opened your meeting link.">Link only</span>' + (recording ? '<span class="mm-b rec">● Recording</span>' : ms && ms.blob ? '<span class="mm-b done">Recording ready</span>' : '') : m.status === 'scheduled' ? '<span class="mm-b sched">Scheduled</span>' : '<span class="mm-b done">Ended</span>';
+    const badge = m.status === 'live' ? '<span class="mm-b live">Live</span><span class="mm-b link" title="VOXA is not in the call. It only opened your meeting link.">Link only</span>' + (recording ? `<span class="mm-b rec">● ${ms.engine ? 'Protecting live' : 'Recording'}</span>` : ms && ms.blob ? '<span class="mm-b done">Recording ready</span>' : '') : m.status === 'scheduled' ? '<span class="mm-b sched">Scheduled</span>' : '<span class="mm-b done">Ended</span>';
     const meta = m.status === 'scheduled' ? `${ic('cal', 14)} ${when(m.scheduledFor)}` : m.status === 'live' ? `${ic('clock', 14)} Started ${when(m.startedAt)}` : `${ic('clock', 14)} ${when(m.startedAt || m.createdAt)}${m.endedAt ? ' – ' + new Date(m.endedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''}`;
     const join = `<a class="mt-btn sm" href="${esc(m.url)}" target="_blank" rel="noopener noreferrer">${ic('link', 14)} Join room</a>`;
     const acts = m.status === 'live'
-      ? `${join}${recording ? `<button class="mt-btn sm danger" data-act="stoprec" data-id="${m.id}">■ Stop recording</button>` : `<button class="mt-btn sm" data-act="recdev" data-id="${m.id}">● Record on this device</button>`}<button class="mt-btn sm" data-act="monitor" data-id="${m.id}">${ic('mic', 14)} Live monitor</button><button class="mt-btn sm" data-act="addrec" data-id="${m.id}">${ic('cam', 14)} ${ms && ms.blob ? 'Playback &amp; analyze' : 'Add recording'}</button><button class="mt-btn sm" data-act="end" data-id="${m.id}">End meeting</button>`
+      ? `${join}${recording ? `<button class="mt-btn sm danger" data-act="stoprec" data-id="${m.id}">■ Stop ${ms.engine ? 'protection' : 'recording'}</button>` : `<button class="mt-btn sm primary" data-act="recdev" data-id="${m.id}">${ic('shield', 14)} Protect live</button>`}<button class="mt-btn sm" data-act="monitor" data-id="${m.id}">${ic('mic', 14)} Live monitor</button><button class="mt-btn sm" data-act="addrec" data-id="${m.id}">${ic('cam', 14)} ${ms && ms.blob ? 'Playback &amp; analyze' : 'Add recording'}</button><button class="mt-btn sm" data-act="end" data-id="${m.id}">End meeting</button>`
       : m.status === 'scheduled'
         ? `${join}<button class="mt-btn sm primary" data-act="startnow" data-id="${m.id}">Start now</button><button class="mt-btn sm" data-act="delete" data-id="${m.id}">Remove</button>`
         : `<button class="mt-btn sm primary" data-act="details" data-id="${m.id}">${ic('shield', 14)} View intelligence</button><button class="mt-btn sm" data-act="addrec" data-id="${m.id}">${ms && ms.blob ? 'Playback &amp; analyze' : 'Add recording'}</button><button class="mt-btn sm" data-act="delete" data-id="${m.id}">Remove</button>`;
     return `<article class="mm-card"><span class="mm-ic ${m.platform}">${ic('cam', 22)}</span><div class="mm-main"><div class="mm-title"><h3>${esc(m.title)}</h3>${badge}</div><div class="mm-plat">${NAME[m.platform].toUpperCase()}</div>
-      <div class="mm-meta"><span>${meta}</span><span>${ic('file', 14)} ${rec} recording${rec === 1 ? '' : 's'}</span><span>${ic('mic', 14)} ${ls} live session${ls === 1 ? '' : 's'}</span></div></div>
+      <div class="mm-meta"><span>${meta}</span><span>${ic('file', 14)} ${rec} recording${rec === 1 ? '' : 's'}</span><span>${ic('mic', 14)} ${ls} live session${ls === 1 ? '' : 's'}</span></div>${recording ? `<div class="mm-live" id="mm-live-${m.id}" aria-live="polite">${liveHtml(m.id)}</div>` : ''}</div>
       <div class="mm-acts">${m.status !== 'ended' ? `<button class="mt-btn sm" data-act="details" data-id="${m.id}">Report</button>` : ''}${acts}</div></article>`;
   }
   function render() {
@@ -119,7 +119,7 @@ window.makeMeetings = function ({ $, esc, store, incidents, PRI, pill, fmt, toas
   }
   function recPanel(i, n, live) {
     const pv = window.VoxaPreviews?.get(i.id), tx = i.transcript?.text || '', it = i.intent, sec = secOf(i);
-    const name = live ? 'Live monitoring session' : (i.media?.name || 'Recording');
+    const name = live ? 'Live monitoring session' : i.liveRisk ? 'Live protection · ' + (i.media?.name || 'meeting audio') : (i.media?.name || 'Recording');
     const media = live ? '' : `<div class="mr-media">${pv ? (pv.kind === 'video' ? `<video controls src="${pv.url}"></video>` : pv.kind === 'image' ? `<img alt="Analyzed image" src="${pv.url}">` : `<audio controls src="${pv.url}"></audio>`) : `<p class="mm-empty" style="margin:0">Playback is unavailable here. VOXA does not store recordings, so playback and download work only in the tab that analyzed the file.</p>`}
       <div class="row-actions">${pv ? `<a class="mt-btn sm primary" href="${pv.url}" download="${esc(i.media?.name || 'meeting-recording')}" data-dl>${ic('file', 14)} Download recording</a>` : `<button class="mt-btn sm" type="button" disabled>Download unavailable</button>`}<a class="mt-btn sm" href="#/incident/${encodeURIComponent(i.id)}">Open full report</a></div></div>`;
     const signal = !live && pv && pv.kind !== 'image' ? `<div class="mr-signal" data-signal="${esc(i.id)}"><h4>Signal analysis</h4><p class="mm-empty" data-sig-state>Analyzing the audio…</p><canvas class="md-canvas" data-wave hidden></canvas><canvas class="md-canvas" data-spec hidden></canvas><ul class="mr-warn" data-warn></ul></div>` : '';
@@ -127,7 +127,7 @@ window.makeMeetings = function ({ $, esc, store, incidents, PRI, pill, fmt, toas
       : `<h4>Conversation</h4><p class="mm-empty">${esc(i.extraction?.message || 'No transcript was produced for this ' + (live ? 'session.' : 'recording.'))}</p>`;
     const graphs = it && it.status === 'ok' && window.VoxaIntentGraphs ? `<h4>Scam-intent analysis</h4>${window.VoxaIntentGraphs(it, sec, tx, i.priority)}` : '';
     return `<section class="mt-card mr-rec" data-rec="${esc(i.id)}"><div class="mt-card-h"><h2>${live ? 'Live session' : 'Recording ' + n} · ${esc(name)}</h2><span>${pill(PRI, i.priority)}</span></div><div class="mt-card-b">
-      <div class="mm-tags" style="margin-top:0">${authChips(i)}<span class="mm-tag">${when(i.at)}</span>${i.media?.duration ? `<span class="mm-tag">${dur(i.media.duration)}</span>` : ''}</div>${media}${signal}${speech}${graphs}</div></section>`;
+      <div class="mm-tags" style="margin-top:0">${i.liveRisk ? `<span class="mm-tag ${i.liveRisk.finalState === 'critical' || i.liveRisk.finalState === 'high' ? 'red' : i.liveRisk.finalState === 'medium' ? 'amber' : i.liveRisk.finalState === 'low' ? 'green' : 'grey'}">Live risk: ${esc(i.liveRisk.finalState || (i.liveRisk.status === 'unavailable' ? 'unavailable' : 'not assessed'))}</span>${i.liveRisk.autoLeft ? '<span class="mm-tag red">VOXA left the meeting</span>' : ''}` : ''}${authChips(i)}<span class="mm-tag">${when(i.at)}</span>${i.media?.duration ? `<span class="mm-tag">${dur(i.media.duration)}</span>` : ''}</div>${media}${signal}${speech}${graphs}</div></section>`;
   }
   function report(id) {
     const m = load().find(x => x.id === id);
@@ -145,6 +145,7 @@ window.makeMeetings = function ({ $, esc, store, incidents, PRI, pill, fmt, toas
       m.startedAt ? { at: m.startedAt, t: 'Meeting started from VOXA (link opened)' } : null,
       ...recs.map(i => ({ at: i.at, t: 'Recording analyzed: ' + (i.media?.name || 'recording') + ' (' + (PRI[i.priority]?.[0] || 'not assessed') + ' scam-intent priority' + (aiFlag(i) ? ', media flagged as AI-generated' : '') + ')' })),
       ...lives.map(i => ({ at: i.at, t: 'Live monitoring session saved (' + (PRI[i.priority]?.[0] || 'not assessed') + ' priority)' })),
+      ...recs.filter(i => i.liveRisk?.autoLeft).map(i => ({ at: i.liveRisk.autoLeft.at, t: 'VOXA left the meeting automatically: ' + i.liveRisk.autoLeft.reasons.join(', ') })),
       ...alerts.map(a => ({ at: a.at, t: 'Alert raised: ' + (a.labels || []).join(', ') })),
       m.endedAt ? { at: m.endedAt, t: 'Meeting ended' } : null
     ].filter(Boolean).sort((a, b) => a.at - b.at);
@@ -193,34 +194,42 @@ window.makeMeetings = function ({ $, esc, store, incidents, PRI, pill, fmt, toas
   }
 
   /* ---------- opening a meeting, noticing when its tab closes ---------- */
-  // Open a blank tab, cut its link back to VOXA (opener = null), then send it to the meeting. We keep our own handle to the tab,
-  // so we can tell when it is closed. The meeting page can never reach VOXA.
+  // Open a blank tab, then send it to the meeting. We keep our own handle to the tab, so we can tell when it is closed and,
+  // for "Leave the meeting automatically on high risk", close it. Browsers allow closing only while the tab keeps its
+  // opener link, so the link is kept. Only validated meet.google.com and zoom.us addresses are ever opened this way.
   function openMeeting(url) {
     if (!['meet', 'zoom'].some(p => ML().validate(p, url).ok)) return null;
     const w = window.open('', '_blank'); if (!w) return null;
-    try { w.opener = null; } catch {}
     try { w.location.href = url; } catch { try { w.close(); } catch {} return null; }
     return w;
   }
-  const watchers = new Map(), pendingEnded = [];
+  const watchers = new Map(), handles = new Map(), pendingEnded = [];
   const MAX_LIVE_MS = 12 * HOUR;
   function track(id, w) {
     if (!w) return;
+    handles.set(id, w);
     clearInterval(watchers.get(id));
     watchers.set(id, setInterval(() => { let closed = true; try { closed = w.closed; } catch {} if (closed) { clearInterval(watchers.get(id)); watchers.delete(id); endMeeting(id, 'tab'); } }, 1500));
   }
   const onMeetingsPage = () => /^#\/meetings/.test(location.hash);
   const redraw = () => dispatchEvent(new HashChangeEvent('hashchange'));
+  const ending = new Set(); // auto-leave closes the tab, and the tab watcher then notices: end only once
   async function endMeeting(id, how) {
-    const m = load().find(x => x.id === id); if (!m || m.status === 'ended') return;
+    const m = load().find(x => x.id === id); if (!m || m.status === 'ended' || ending.has(id)) return;
+    ending.add(id);
+    try { await endMeetingNow(id, how, m); } finally { ending.delete(id); }
+  }
+  async function endMeetingNow(id, how, m) {
     clearInterval(watchers.get(id)); watchers.delete(id);
-    await stopRecording(id);
+    await finish(id, how);
+    handles.delete(id);
     if (!patch(id, { status: 'ended', endedAt: Date.now() })) return;
     try { sessionStorage.setItem(tabKey, 'recent'); } catch {}
     const fresh = load().find(x => x.id === id);
     if (onMeetingsPage()) { redraw(); setTimeout(() => recordingDialog(fresh, { ended: true, how }), 150); }
-    else { pendingEnded.push(id); toast((how === 'tab' ? 'The meeting tab was closed, so ' : '') + '"' + m.title + '" was marked ended. Open Meetings to add the recording.'); }
+    else { pendingEnded.push({ id, how }); toast(ENDED_WHY[how] ? ENDED_WHY[how] + ' "' + m.title + '" has ended. Open Meetings to see the report.' : '"' + m.title + '" was marked ended. Open Meetings to add the recording.'); }
   }
+  const ENDED_WHY = { tab: 'The meeting tab was closed.', share: 'Sharing of the meeting tab stopped.', silence: 'The meeting audio went silent.', risk: 'VOXA left the meeting because of high scam risk.' };
   function expireOld(list) {
     let changed = false; const now = Date.now();
     const out = list.map(m => { if (m.status === 'live' && m.startedAt && now - m.startedAt > MAX_LIVE_MS && !watchers.has(m.id)) { changed = true; return { ...m, status: 'ended', endedAt: m.startedAt + MAX_LIVE_MS }; } return m; });
@@ -232,35 +241,191 @@ window.makeMeetings = function ({ $, esc, store, incidents, PRI, pill, fmt, toas
   const LIMIT_MB = { voice: 20, video: 32 };
   const pickMime = mode => (mode === 'audio' ? ['audio/webm;codecs=opus', 'audio/webm'] : ['video/webm;codecs=vp8,opus', 'video/webm']).find(t => window.MediaRecorder?.isTypeSupported?.(t)) || '';
   const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'meeting';
-  function stopRecording(id) {
+  /* ---------- live protection: the meeting tab's audio, transcribed and checked while the meeting runs ---------- */
+  // The browser's share prompt gives VOXA the meeting tab's audio, which is what the other participants say (Meet and
+  // Zoom do not play your own microphone back into the tab). It is (1) recorded in this tab for playback and the
+  // spectrogram, (2) streamed to /api/live for transcription and scored by VoxaCallRisk, and (3) level-metered so VOXA
+  // notices when the meeting has ended. Nothing is stored by the server.
+  const SILENT_DB = -55, SILENT_S = 60, END_COUNTDOWN = 10, RANKS = { low: 1, medium: 2, high: 3, critical: 4 };
+  const LIVE_LABEL = { off: 'Not analyzing', pending: 'Listening', low: 'Low', medium: 'Medium', high: 'High', critical: 'Critical', unavailable: 'Analysis unavailable' };
+  const LIVE_CLS = { off: 'na', pending: 'na', low: 'ok', medium: 'warn', high: 'bad', critical: 'crit', unavailable: 'na' };
+  const mmss = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+  function stopRecording(id) { return finish(id, 'manual'); }
+  function finish(id, why) {
     const s = media.get(id);
     if (!s || s.state !== 'recording') return Promise.resolve();
-    return new Promise(res => { s.onReady = res; try { if (s.rec.state !== 'inactive') s.rec.stop(); else res(); } catch { res(); } setTimeout(res, 4000); });
+    if (s.finishing) return s.finishing;
+    s.finishing = (async () => {
+      clearInterval(s.tick); clearTimeout(s.retryTimer); cancelCountdown(s);
+      try { if (s.liveRec?.state === 'recording') s.liveRec.stop(); } catch {}
+      if (s.live) { s.live.onclose = s.live.onerror = s.live.onmessage = null; try { if (s.live.readyState === 1) s.live.send(JSON.stringify({ type: 'stop' })); s.live.close(); } catch {} }
+      if (s.rec.state !== 'inactive') await new Promise(r => { s.onRecStop = r; try { s.rec.stop(); } catch { r(); } setTimeout(r, 4000); });
+      s.stream.getTracks().forEach(t => t.stop());
+      try { s.ac?.close(); } catch {}
+      s.state = s.blob?.size ? 'ready' : 'empty'; s.endedBy = why;
+      const m = load().find(x => x.id === id);
+      if (s.engine && m) { const rid = saveLiveReport(m, s); if (rid) patch(id, { liveReportId: rid }); }
+      if (!s.blob?.size) media.delete(id);
+      if (onMeetingsPage()) redraw();
+    })();
+    return s.finishing;
   }
-  async function startRecording(m, mode) {
-    if (!navigator.mediaDevices?.getDisplayMedia || !window.MediaRecorder) { toast('This browser cannot record a tab or window. Add a recording file instead.'); return false; }
+  async function startRecording(m, mode, opts = {}) {
+    if (!window.isSecureContext) { toast('Capturing a meeting needs a secure page. Open VOXA with https:// or on localhost.'); return false; }
+    if (!navigator.mediaDevices?.getDisplayMedia || !window.MediaRecorder) { toast('This browser cannot capture a tab. Use a recent Chrome or Edge, or add a recording file instead.'); return false; }
     let stream;
-    try { stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }); }
-    catch (e) { toast(e?.name === 'NotAllowedError' ? 'Recording was not started. Choose the meeting tab or window in the browser prompt.' : 'Recording could not start: ' + (e?.message || 'unknown error')); return false; }
+    try { stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }, selfBrowserSurface: 'exclude', surfaceSwitching: 'include', systemAudio: 'include', preferCurrentTab: false }); }
+    catch (e) { toast(e?.name === 'NotAllowedError' ? 'Nothing was shared. Choose the meeting tab in the browser prompt.' : 'Capture could not start: ' + (e?.message || 'unknown error')); return false; }
     const audio = stream.getAudioTracks();
-    if (!audio.length) { stream.getTracks().forEach(t => t.stop()); toast('No audio was shared, so nothing was recorded. In the browser prompt, choose the meeting tab and switch on "Also share tab audio".'); return false; }
-    const src = mode === 'audio' ? new MediaStream(audio) : stream, mime = pickMime(mode);
+    if (!audio.length) { stream.getTracks().forEach(t => t.stop()); toast('No audio was shared. In the browser prompt, choose the meeting TAB (not a window) and switch on "Also share tab audio".'); return false; }
+    const audioOnly = new MediaStream(audio), src = mode === 'audio' ? audioOnly : stream, mime = pickMime(mode);
     let rec; try { rec = new MediaRecorder(src, { ...(mime ? { mimeType: mime } : {}), audioBitsPerSecond: 64000, videoBitsPerSecond: 500000 }); } catch { stream.getTracks().forEach(t => t.stop()); toast('Recording could not start in this browser.'); return false; }
-    const s = { state: 'recording', mode, rec, stream, chunks: [], size: 0, kind: mode === 'audio' ? 'voice' : 'video', source: 'device', startedAt: Date.now() };
+    const s = { state: 'recording', mode, rec, stream, chunks: [], size: 0, kind: mode === 'audio' ? 'voice' : 'video', source: 'device', startedAt: Date.now(), opts };
     media.set(m.id, s);
-    rec.ondataavailable = e => { if (!e.data.size) return; s.chunks.push(e.data); s.size += e.data.size; if (s.size > (LIMIT_MB[s.kind] - 1) * 1048576 && rec.state === 'recording') { toast('Recording stopped at the ' + LIMIT_MB[s.kind] + ' MB analysis limit.'); rec.stop(); } };
-    rec.onstop = () => {
-      stream.getTracks().forEach(t => t.stop());
-      s.blob = new Blob(s.chunks, { type: (mime || (mode === 'audio' ? 'audio/webm' : 'video/webm')).split(';')[0] }); s.chunks = [];
-      s.name = 'meeting-' + slug(m.title) + '-' + new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '') + '.webm'; s.state = s.blob.size ? 'ready' : 'empty';
-      if (!s.blob.size) media.delete(m.id);
-      s.onReady?.(); if (onMeetingsPage()) redraw();
-      if (s.blob.size && !s.onReady) toast('Recording saved in this tab. Open the meeting to play it back and analyze it.');
+    rec.ondataavailable = e => {
+      if (!e.data.size) return; s.chunks.push(e.data); s.size += e.data.size;
+      if (s.size > (LIMIT_MB[s.kind] - 1) * 1048576 && rec.state === 'recording') { s.recFull = true; toast('The recording reached the ' + LIMIT_MB[s.kind] + ' MB limit and stopped.' + (s.engine ? ' Live analysis continues.' : '')); rec.stop(); }
     };
-    // The tab or window being shared was closed, or sharing was stopped from the browser bar.
-    stream.getVideoTracks().forEach(t => t.addEventListener('ended', () => { if (rec.state === 'recording') rec.stop(); }));
-    audio.forEach(t => t.addEventListener('ended', () => { if (rec.state === 'recording') rec.stop(); }));
-    rec.start(1000); toast('Recording started on this device. Tell everyone in the meeting.'); redraw(); return true;
+    rec.onstop = () => {
+      s.blob = new Blob(s.chunks, { type: (mime || (mode === 'audio' ? 'audio/webm' : 'video/webm')).split(';')[0] }); s.chunks = [];
+      s.name = 'meeting-' + slug(m.title) + '-' + new Date(s.startedAt).toISOString().slice(0, 16).replace(/[-:T]/g, '') + '.webm';
+      s.onRecStop?.();
+      if (!s.engine && !s.opts.autoStop && !s.finishing) finish(m.id, 'limit'); // a plain recording ends with its file
+    };
+    // The shared tab was closed, or sharing was stopped from the browser bar: the meeting is over for VOXA.
+    const shareEnded = () => { if (s.state !== 'recording' || s.finishing) return; opts.autoStop ? endMeeting(m.id, 'share') : finish(m.id, 'share'); };
+    stream.getTracks().forEach(t => t.addEventListener('ended', shareEnded));
+    rec.start(1000);
+    if (opts.live) startLive(m, s, audioOnly);
+    if (opts.autoStop) startMeter(s, audioOnly);
+    s.tick = setInterval(() => tick(m.id), 1000);
+    toast(opts.live ? 'VOXA is protecting this meeting. Tell everyone it is being analyzed.' : 'Recording started on this device. Tell everyone in the meeting.'); redraw(); return true;
+  }
+  function startLive(m, s, audioOnly) {
+    const sec = store.get('sector', 'personal'); s.sector = (window.VOXA_SECTORS || {})[sec] ? sec : 'personal';
+    s.engine = VoxaCallRisk.create({ autoEnd: { enabled: Boolean(s.opts.autoLeave) } }, s.sector);
+    s.retries = 0;
+    // One transcription stream at a time. Streams end after the server's 10-minute cap or a network drop; VOXA then
+    // reconnects and keeps the same risk history. While disconnected the state is "Analysis unavailable".
+    const connect = () => {
+      if (s.finishing || s.state !== 'recording') return;
+      let ws, reason = 'Live transcription disconnected.';
+      try { ws = s.live = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/api/live', window.VoxaAuth?.wsProtocols?.()); }
+      catch { s.engine.setAvailable(false, 'Live transcription could not start.'); return retry(); }
+      ws.onmessage = ev => {
+        let d; try { d = JSON.parse(ev.data); } catch { return; }
+        if (d.type === 'ready') {
+          s.retries = 0; s.engine.setAvailable(true); s.engine.heartbeat();
+          const lm = MediaRecorder.isTypeSupported?.('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
+          try { s.liveRec = new MediaRecorder(audioOnly, lm ? { mimeType: lm } : undefined); } catch { reason = 'This browser cannot stream the meeting audio for analysis.'; return ws.close(); }
+          // Bytes in order: sending MediaRecorder Blobs directly can fail in Chrome ("Failed to load Blob") and drop the socket.
+          let q = Promise.resolve();
+          s.liveRec.ondataavailable = e => { if (!e.data.size) return; const b = e.data; q = q.then(() => b.arrayBuffer()).then(buf => { if (ws.readyState === 1) ws.send(buf); }).catch(() => {}); };
+          s.liveRec.start(250);
+        } else if (d.type === 'transcript') { s.engine.add({ text: d.text, final: d.final, confidence: d.confidence, t: (Date.now() - s.startedAt) / 1000 }); s.interim = d.final ? '' : d.text; }
+        else if (d.type === 'error') reason = d.message || reason;
+      };
+      ws.onerror = () => {};
+      ws.onclose = () => {
+        try { if (s.liveRec?.state === 'recording') s.liveRec.stop(); } catch {}
+        if (s.finishing || s.live !== ws) return;
+        s.engine.setAvailable(false, reason + ' Reconnecting…'); s.interim = '';
+        retry();
+      };
+    };
+    const retry = () => { if (s.finishing) return; if (++s.retries > 20) return s.engine.setAvailable(false, 'Live transcription is unavailable (the service may be off, busy or not configured).'); clearTimeout(s.retryTimer); s.retryTimer = setTimeout(connect, Math.min(30000, 1000 * 2 ** Math.min(s.retries, 5))); };
+    connect();
+  }
+  function startMeter(s, audioOnly) {
+    try {
+      s.ac = new AudioContext(); const an = s.ac.createAnalyser(), mute = s.ac.createGain(); an.fftSize = 2048; mute.gain.value = 0;
+      s.ac.createMediaStreamSource(audioOnly).connect(an); an.connect(mute); mute.connect(s.ac.destination); // silent sink keeps the graph running
+      s.an = an; s.buf = new Float32Array(an.fftSize); s.ac.resume?.();
+    } catch { s.an = null; }
+  }
+  function levelDb(s) { if (!s.an) return null; s.an.getFloatTimeDomainData(s.buf); let sum = 0; for (const v of s.buf) sum += v * v; return 10 * Math.log10(sum / s.buf.length + 1e-12); }
+  function tick(id) {
+    const s = media.get(id); if (!s || s.state !== 'recording' || s.finishing) return;
+    const now = Date.now(), m = load().find(x => x.id === id);
+    if (s.opts.autoStop) {
+      const db = levelDb(s);
+      if (db !== null) {
+        if (db > SILENT_DB) { s.heard = true; s.quietSince = null; if (s.countdown?.kind === 'silence') cancelCountdown(s); }
+        else if (s.heard) { s.quietSince ??= now; if (!s.countdown && (now - s.quietSince) / 1000 >= SILENT_S) startCountdown(id, s, 'silence'); }
+      }
+    }
+    if (s.engine) {
+      const r = s.eval = s.engine.evaluate(now), canLeave = s.opts.autoLeave && handleOpen(id);
+      if (canLeave && r.status === 'ok' && r.autoEnd.eligible && !s.countdown) startCountdown(id, s, 'risk');
+      if (s.countdown?.kind === 'risk' && !(r.status === 'ok' && r.autoEnd.eligible)) cancelCountdown(s);
+      if (r.status === 'ok' && RANKS[r.state] >= 3 && !s.alerted) { s.alerted = true; if (!onMeetingsPage()) toast(`${LIVE_LABEL[r.state]} scam risk in "${m?.title || 'your meeting'}". Open Meetings to see why.`); }
+    }
+    paintLive(id);
+  }
+  function startCountdown(id, s, kind) {
+    s.countdown = { kind, left: kind === 'risk' ? (s.eval?.autoEnd?.countdownSeconds || 5) : END_COUNTDOWN };
+    s.countdown.timer = setInterval(() => {
+      if (!s.countdown) return;
+      if (--s.countdown.left > 0) return paintLive(id);
+      const k = s.countdown.kind; cancelCountdown(s);
+      if (k === 'silence') endMeeting(id, 'silence');
+      else { const r = s.engine.evaluate(); if (r.status === 'ok' && r.autoEnd.eligible && handleOpen(id)) leaveMeeting(id, r); }
+    }, 1000);
+    paintLive(id);
+  }
+  function cancelCountdown(s) { if (!s?.countdown) return; clearInterval(s.countdown.timer); s.countdown = null; }
+  function keep(id) {
+    const s = media.get(id); if (!s?.countdown) return;
+    if (s.countdown.kind === 'risk') { s.engine.cancelAutoEnd(); toast('You stayed in the meeting. Auto-leave is off for the rest of it.'); }
+    else s.quietSince = Date.now();
+    cancelCountdown(s); paintLive(id);
+  }
+  const handleOpen = id => { const w = handles.get(id); try { return Boolean(w && !w.closed); } catch { return false; } };
+  // VOXA opened the meeting tab itself, so it may close it. Closing the tab makes you leave the call; VOXA cannot end
+  // the meeting for others, and cannot touch a meeting tab it did not open.
+  function leaveMeeting(id, r) {
+    const s = media.get(id); if (!s) return;
+    s.autoLeft = { reasons: r.autoEnd.reasons, state: r.state, at: Date.now() };
+    try { handles.get(id)?.close(); } catch {}
+    endMeeting(id, 'risk');
+  }
+  function liveHtml(id) {
+    const s = media.get(id); if (!s || s.state !== 'recording') return '';
+    const r = s.eval, key = !s.engine ? 'off' : r?.status === 'unavailable' ? 'unavailable' : r?.status === 'ok' ? r.state : 'pending';
+    const t = (Date.now() - s.startedAt) / 1000, quiet = s.quietSince ? Math.floor((Date.now() - s.quietSince) / 1000) : 0, cd = s.countdown;
+    const banner = cd ? (cd.kind === 'risk'
+      ? `<div class="pc-warn pc-count" role="alert"><b>Leaving the meeting in ${cd.left} s</b><p>Reason: ${esc((s.eval?.autoEnd?.reasons || []).join(', '))}. This is decision support, not proof.</p><button class="mt-btn sm" type="button" data-act="keep" data-id="${id}">Stay in the meeting</button></div>`
+      : `<div class="pc-warn" role="alert"><b>No meeting audio for ${SILENT_S} s</b><p>The meeting seems to have ended. VOXA will stop and prepare the report in ${cd.left} s.</p><button class="mt-btn sm" type="button" data-act="keep" data-id="${id}">Keep listening</button></div>`)
+      : key === 'unavailable' ? `<div class="pc-warn" role="alert"><b>Analysis unavailable</b><p>${esc(r.reason || '')} The meeting is not being judged${s.opts.autoLeave ? ', and VOXA will not leave it automatically' : ''}. The recording continues.</p></div>`
+      : r?.status === 'ok' && RANKS[r.state] >= 3 ? `<div class="pc-warn" role="alert"><b>${LIVE_LABEL[r.state]} risk</b><p>${esc(r.evidence.map(e => e.label).join(', '))}. Do not share OTPs, PINs or card details, and do not send money.${s.opts.autoLeave && !handleOpen(id) ? ' VOXA cannot leave this meeting for you because it did not open the meeting tab. Leave it yourself.' : ''}</p></div>` : '';
+    const ev = (r?.evidence || []).slice(0, 3).map(e => `<li><b>${esc(e.label)}</b> <small>${e.t !== null ? 'at ' + mmss(e.t) : ''}${typeof e.confidence === 'number' ? ' · ' + Math.round(e.confidence * 100) + '%' : ''}</small> “${esc(e.excerpt.slice(0, 120))}”</li>`).join('');
+    const last = s.engine ? (s.interim || s.engine.transcript().split('. ').slice(-1)[0] || '') : '';
+    const facts = [`<span class="pc-chip ${LIVE_CLS[key]}">${LIVE_LABEL[key]}</span>`, `<span>${mmss(t)}</span>`];
+    if (s.engine && r?.status === 'ok') { facts.push(`<span>Score ${r.score}</span>`); if (typeof r.confidence === 'number') facts.push(`<span>${Math.round(r.confidence * 100)}% recognition</span>`); }
+    if (s.opts.autoStop) facts.push(`<span>${quiet >= 10 ? 'Quiet for ' + quiet + ' s' : s.heard ? 'Hearing the meeting' : 'Waiting for meeting audio'}</span>`);
+    if (s.opts.autoLeave) facts.push(`<span>${handleOpen(id) ? 'Auto-leave on' : 'Auto-leave unavailable'}</span>`);
+    if (s.recFull) facts.push('<span>Recording full</span>');
+    return `${banner}<div class="mm-live-row">${facts.join('')}</div>${ev ? `<ul class="mm-live-ev">${ev}</ul>` : ''}${last ? `<p class="mm-live-tx">${s.interim ? '<span class="pc-interim">' + esc(last.slice(-200)) + '</span>' : esc(last.slice(-200))}</p>` : ''}`;
+  }
+  const paintLive = id => { const el = document.getElementById('mm-live-' + id); if (el) el.innerHTML = liveHtml(id); };
+  function saveLiveReport(m, s) {
+    const text = s.engine.transcript(), ev = s.engine.evaluate(), sector = s.sector;
+    const intent = text ? voxaScamIntent(text, sector) : { status: 'insufficient', priority: 'nee', score: 0, rules: [], words: 0 };
+    const inc = {
+      id: 'INC-' + Date.now().toString(36).toUpperCase().slice(-6) + Math.random().toString(36).slice(2, 4).toUpperCase(), at: s.startedAt,
+      modality: s.kind, sector, policyVersion: (window.VOXA_SECTORS || {})[sector]?.version, reportType: 'scam_analysis', tags: ['meeting', 'live-protection'],
+      priority: intent.priority, intent, transcript: text ? { text, source: 'deepgram' } : null,
+      media: { name: s.name || 'meeting-' + slug(m.title) + '.webm', source: 'meeting', mime: s.blob?.type || null, duration: Math.round((Date.now() - s.startedAt) / 1000) },
+      status: 'open', notes: [],
+      authenticity: { status: 'unavailable', code: 'NOT_CHECKED', message: 'Live protection checks what is said. Use "Playback & analyze" on the meeting to check whether the voices are AI-generated.' },
+      meeting: { title: m.title, platform: NAME[m.platform], meetingId: m.id },
+      extraction: text ? null : { status: 'unavailable', message: ev.status === 'unavailable' ? ev.reason : 'No speech was transcribed from the meeting audio.' },
+      liveRisk: { status: ev.status, finalState: ev.status === 'ok' ? ev.state : null, evidence: ev.evidence.map(e => ({ id: e.id, label: e.label, t: e.t, confidence: e.confidence })), autoLeft: s.autoLeft || null, endedBy: s.endedBy },
+      language: null, state: intent.status === 'ok' ? 'partial' : 'insufficient', limitations: window.VOXA_LIMITS, persist: false, expiresAt: Date.now() + 86400000, consentedAt: s.startedAt
+    };
+    if (!store.set('incidents', [inc, ...incidents()])) return null;
+    if (s.blob?.size) window.VoxaPreviews?.set(inc.id, { url: URL.createObjectURL(s.blob), kind: s.kind });
+    return inc.id;
   }
   const playerHtml = s => s.kind === 'video' ? `<video controls src="${URL.createObjectURL(s.blob)}"></video>` : `<audio controls src="${URL.createObjectURL(s.blob)}"></audio>`;
   const mb = n => (n / 1048576).toFixed(2) + ' MB';
@@ -280,9 +445,11 @@ window.makeMeetings = function ({ $, esc, store, incidents, PRI, pill, fmt, toas
   function recordingDialog(m, opts = {}) {
     if (!m) return;
     const s = media.get(m.id), have = s && s.blob;
-    const body = `${opts.ended ? `<p class="mm-lead">${opts.how === 'tab' ? 'The meeting tab was closed, so VOXA marked this meeting as ended.' : 'This meeting is marked as ended.'} Google Meet and Zoom do not give VOXA the recording, so add it here to play it back and analyze it.</p>` : ''}
+    const rep = m.liveReportId && incidents().find(i => i.id === m.liveReportId), lr = rep?.liveRisk;
+    const body = `${opts.ended ? `<p class="mm-lead">${ENDED_WHY[opts.how] || 'This meeting is marked as ended.'} ${rep ? '' : 'Google Meet and Zoom do not give VOXA the recording, so add it here to play it back and analyze it.'}</p>` : ''}
+      ${rep ? `<div class="mm-rep ${lr?.autoLeft ? 'risk' : ''}"><b>${lr?.autoLeft ? 'VOXA left the meeting: ' + esc(lr.autoLeft.reasons.join(', ')) : 'Live protection report ready'}</b><p>Scam-intent risk: ${esc(PRI[rep.priority]?.[0] || 'not assessed')}${lr?.finalState ? ' · live state ' + esc(lr.finalState) : lr?.status === 'unavailable' ? ' · live analysis was unavailable' : ''} · ${(rep.intent?.rules || []).length} indicator${(rep.intent?.rules || []).length === 1 ? '' : 's'}</p><button class="mt-btn sm primary" type="button" id="rd-report">View meeting report</button></div>` : ''}
       ${have ? `<div class="mm-rec"><div class="mm-rec-h"><span class="mm-av">${ic(s.kind === 'video' ? 'cam' : 'mic', 18)}</span><div><b>${esc(s.name)}</b><small>${s.source === 'device' ? 'RECORDED ON THIS DEVICE' : 'FILE YOU ADDED'} · ${s.kind === 'video' ? 'VIDEO' : 'AUDIO'} · ${mb(s.blob.size)}</small></div></div><div class="mm-player">${playerHtml(s)}</div>
-        <div class="mm-rec-f"><button class="mt-btn sm primary" type="button" id="rd-analyze">Analyze this recording</button><button class="mt-btn sm" type="button" id="rd-replace">Use a different file</button></div></div>`
+        <div class="mm-rec-f"><button class="mt-btn sm${rep ? '' : ' primary'}" type="button" id="rd-analyze">${rep ? 'Also check voices for AI generation' : 'Analyze this recording'}</button><button class="mt-btn sm" type="button" id="rd-replace">Use a different file</button></div></div>`
       : `<label class="an-drop md-drop" for="rd-file"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0-4 4m4-4 4 4M5 20h14"/></svg><b>Add the meeting recording</b><small>mp4, webm, mov, mp3, wav, m4a · video up to 32 MB, audio up to 20 MB</small><input id="rd-file" type="file" accept="video/*,audio/*,.mp4,.webm,.mov,.mp3,.wav,.m4a,.ogg,.flac" hidden></label><p class="mm-hint" id="rd-msg" role="alert" hidden></p>`}
       ${!have && m.status === 'live' ? `<p class="mm-hint">Or record this meeting from this device while it runs: use <b>Record on this device</b> on the meeting card.</p>` : ''}
       <p class="md-note">Only analyze recordings that everyone in the meeting agreed to. VOXA does not store the file; playback works in this tab only.</p><div class="mm-dfoot"><span style="flex:1"></span><button class="sm-btn cancel" type="button" data-close>${have ? 'Close' : 'Not now'}</button></div>`;
@@ -304,18 +471,29 @@ window.makeMeetings = function ({ $, esc, store, incidents, PRI, pill, fmt, toas
         if (dz) { ['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('over'); })); ['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('over'); })); dz.addEventListener('drop', e => take(e.dataTransfer.files[0])); }
         w.querySelector('#rd-replace')?.addEventListener('click', () => { media.delete(m.id); close(); recordingDialog(m, opts); });
         w.querySelector('#rd-analyze')?.addEventListener('click', () => { close(); handoff(m, media.get(m.id)); });
+        w.querySelector('#rd-report')?.addEventListener('click', () => { close(); location.hash = '#/meeting/' + m.id; });
       } });
   }
   function recordDeviceDialog(m, trigger) {
-    dlg({ title: 'Record this meeting on this device', sub: m.title.toUpperCase(), trigger,
-      bodyHtml: `<p class="mm-lead">VOXA can record the meeting from this computer so you can play it back and analyze it afterwards. You choose exactly what to share in your browser's prompt; nothing is recorded until you do.</p>
-        <ol class="mm-steps"><li>Pick what to record below.</li><li>In the browser prompt, choose the <b>meeting tab</b> and switch on <b>Also share tab audio</b>.</li><li>When the meeting ends (or you press Stop), the recording appears here for playback and analysis.</li></ol>
-        <form id="rd-form"><label class="mm-opt"><input type="radio" name="rm" value="audio" checked> <span><b>Audio only (recommended)</b><small>Smaller, so long meetings fit the 20 MB analysis limit.</small></span></label><label class="mm-opt"><input type="radio" name="rm" value="video"> <span><b>Audio and video</b><small>Stops by itself at the 32 MB video limit, roughly 6 minutes.</small></span></label>
-        <label class="sm-check"><input type="checkbox" id="rd-consent"> Everyone in this meeting has agreed to be recorded.</label>
-        <p class="md-note">The recording stays in this browser tab and is never uploaded until you press Analyze.</p><div class="sm-actions"><button type="button" class="sm-btn cancel" data-close>Cancel</button><button type="submit" class="sm-btn go" disabled>Choose what to record</button></div></form>`,
+    const canLeave = handleOpen(m.id);
+    dlg({ title: 'Protect this meeting live', sub: m.title.toUpperCase(), trigger, wide: true,
+      bodyHtml: `<p class="mm-lead">VOXA listens to the meeting tab's audio (what the other people say), transcribes it live and checks it for scam patterns, the same way as Protected call. It keeps a recording in this tab for the report's playback and spectrogram. Nothing starts until you choose the tab in your browser's prompt.</p>
+        <ol class="mm-steps"><li>Choose the options below.</li><li>In the browser prompt, pick the <b>${NAME[m.platform]} tab</b> and switch on <b>Also share tab audio</b>.</li><li>Keep talking in ${NAME[m.platform]} as usual. When the meeting ends, VOXA stops and the report opens.</li></ol>
+        <form id="rd-form">
+        <label class="mm-opt"><input type="checkbox" id="rd-live" checked> <span><b>Analyze live for scams</b><small>Live risk (Low to Critical), evidence with timestamps and recognition confidence, while the meeting runs.</small></span></label>
+        <label class="mm-opt"><input type="checkbox" id="rd-auto" checked> <span><b>Stop automatically when the meeting ends</b><small>When the meeting tab closes, sharing stops, or no meeting audio is heard for ${SILENT_S} s (with a ${END_COUNTDOWN}-second warning you can cancel).</small></span></label>
+        <label class="mm-opt ${canLeave ? '' : 'off'}"><input type="checkbox" id="rd-leave" ${canLeave ? '' : 'disabled'}> <span><b>Leave the meeting automatically on high risk</b><small>${canLeave ? 'Off by default. After repeated, confident scam evidence and a 5-second countdown, VOXA closes the meeting tab it opened, so you leave the call. It cannot end the meeting for others. Never acts when analysis is unavailable.' : 'Available only when this meeting was opened from VOXA in this browser tab (use Start meeting or Start now). VOXA cannot close a tab it did not open.'}</small></span></label>
+        <div class="mm-mode"><label class="mm-opt"><input type="radio" name="rm" value="audio" checked> <span><b>Keep an audio recording (recommended)</b><small>About 40 minutes fit the 20 MB analysis limit. Live analysis continues after that.</small></span></label><label class="mm-opt"><input type="radio" name="rm" value="video"> <span><b>Keep audio and video</b><small>The recording stops at 32 MB (about 6 minutes); live analysis continues.</small></span></label></div>
+        <label class="sm-check"><input type="checkbox" id="rd-consent"> Everyone in this meeting knows VOXA is analyzing it and has agreed.</label>
+        <p class="md-note">Audio is sent to the speech-to-text service only while live analysis runs and is not stored. The recording stays in this browser tab.</p><div class="sm-actions"><button type="button" class="sm-btn cancel" data-close>Cancel</button><button type="submit" class="sm-btn go" disabled>Choose the meeting tab</button></div></form>`,
       onMount: (w, close) => {
         const go = w.querySelector('.go'), cb = w.querySelector('#rd-consent'); cb.addEventListener('change', () => { go.disabled = !cb.checked; });
-        w.querySelector('#rd-form').addEventListener('submit', async e => { e.preventDefault(); if (!cb.checked) return; const mode = w.querySelector('input[name=rm]:checked').value; close(); await startRecording(m, mode); });
+        w.querySelector('#rd-live').addEventListener('change', e => { const l = w.querySelector('#rd-leave'); if (!e.target.checked) { l.checked = false; l.disabled = true; } else l.disabled = !canLeave; });
+        w.querySelector('#rd-form').addEventListener('submit', async e => {
+          e.preventDefault(); if (!cb.checked) return;
+          const mode = w.querySelector('input[name=rm]:checked').value, opts = { live: w.querySelector('#rd-live').checked, autoStop: w.querySelector('#rd-auto').checked, autoLeave: w.querySelector('#rd-leave').checked };
+          close(); await startRecording(m, mode, opts);
+        });
       } });
   }
   function startAnalyze(m) {
@@ -348,7 +526,7 @@ window.makeMeetings = function ({ $, esc, store, incidents, PRI, pill, fmt, toas
 
   let onViewClick = () => {}; // one delegated handler; replaced (never stacked) each time the page renders
   function setup() {
-    if (pendingEnded.length) { const id = pendingEnded.shift(); setTimeout(() => recordingDialog(load().find(x => x.id === id), { ended: true, how: 'tab' }), 200); }
+    if (pendingEnded.length) { const p = pendingEnded.shift(); setTimeout(() => recordingDialog(load().find(x => x.id === p.id), { ended: true, how: p.how }), 200); }
     $('#mm-start')?.addEventListener('click', e => window.VoxaStartDialog?.(e.currentTarget));
     $('#mm-schedule')?.addEventListener('click', e => scheduleDialog(e.currentTarget));
     document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => { try { sessionStorage.setItem(tabKey, b.dataset.tab); } catch {} dispatchEvent(new HashChangeEvent('hashchange')); }));
@@ -363,7 +541,9 @@ window.makeMeetings = function ({ $, esc, store, incidents, PRI, pill, fmt, toas
       else if (act === 'end') endMeeting(m.id, 'manual');
       else if (act === 'addrec') recordingDialog(m, { ended: m.status === 'ended', trigger: b });
       else if (act === 'recdev') recordDeviceDialog(m, b);
+      else if (act === 'keep') keep(m.id);
       else if (act === 'stoprec') stopRecording(m.id).then(() => { redraw(); setTimeout(() => recordingDialog(load().find(x => x.id === m.id), { trigger: null }), 150); });
+      else if (act === 'liverep') location.hash = '#/meeting/' + m.id;
       else if (act === 'startnow') { if (patch(m.id, { status: 'live', startedAt: Date.now(), scheduledFor: null })) { track(m.id, openMeeting(m.url)); try { sessionStorage.setItem(tabKey, 'live'); } catch {} redraw(); } }
       else if (act === 'delete') { if (b.dataset.armed) { drop(m.id); redraw(); } else { b.dataset.armed = '1'; b.textContent = 'Confirm remove'; setTimeout(() => { if (b.isConnected) { b.textContent = 'Remove'; delete b.dataset.armed; } }, 3500); } }
     };

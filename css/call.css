@@ -49,3 +49,17 @@
 .pcg .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .pcg .status{font-size:13px;color:var(--mt-mut)}
 .pcg ul{padding-left:18px;font-size:13px;color:#374151;line-height:1.6}
+
+/* Meetings: live protection panel on a meeting card, and the ended dialog's report box */
+.mm-live{margin-top:10px;border:1px solid var(--mt-line);border-radius:8px;padding:10px 12px;background:#fff;font-size:12.5px;color:#374151;max-width:640px}
+.mm-live .pc-warn{margin:0 0 10px}
+.mm-live-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;color:var(--mt-mut)}
+.mm-live-ev{list-style:none;margin:8px 0 0;padding:0}
+.mm-live-ev li{padding:5px 0;border-top:1px solid var(--mt-line);overflow-wrap:anywhere}
+.mm-live-ev small{color:var(--mt-mut)}
+.mm-live-tx{margin:8px 0 0;color:var(--mt-ink);overflow-wrap:anywhere}
+.mm-rep{border:1px solid var(--mt-line);background:#f9fafb;border-radius:8px;padding:12px 14px;margin:0 0 14px;font-size:13px}
+.mm-rep.risk{border-color:#fecaca;background:#fef2f2;color:#7f1d1d}
+.mm-rep p{margin:4px 0 10px}
+.mm-opt.off{opacity:.65;cursor:not-allowed}
+.mm-mode{margin-top:6px}

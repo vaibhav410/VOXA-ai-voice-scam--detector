@@ -112,7 +112,9 @@ window.makeCallHost = function (c) {
           const audioOnly = new MediaStream(stream.getAudioTracks());
           const mime = MediaRecorder.isTypeSupported?.('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
           rec = new MediaRecorder(audioOnly, mime ? {mimeType: mime} : undefined);
-          rec.ondataavailable = e => { if (e.data.size && live?.readyState === 1) live.send(e.data); };
+          // Send bytes in order: Chrome can fail to send a MediaRecorder Blob directly ("Failed to load Blob") and drop the socket.
+          let q = Promise.resolve(); const sock = live;
+          rec.ondataavailable = e => { if (!e.data.size) return; const b = e.data; q = q.then(() => b.arrayBuffer()).then(buf => { if (sock.readyState === 1) sock.send(buf); }).catch(() => {}); };
           rec.start(250);
         } else if (d.type === 'transcript') {
           engine.add({text: d.text, final: d.final, confidence: d.confidence, t: (Date.now() - started) / 1000});

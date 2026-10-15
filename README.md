@@ -177,9 +177,24 @@ Once a meeting link is saved or a meeting is started, **Meetings** becomes a das
 
 ### Meeting end detection, playback and analysis
 
-- When a meeting is started from VOXA, VOXA keeps a handle to the meeting tab (its link back to VOXA is cut, so the meeting page cannot reach VOXA). When you close that tab the meeting is marked **ended** automatically and the **Meeting ended** step opens. A meeting left live for more than 12 hours is closed automatically. VOXA cannot see inside Google Meet or Zoom, so it cannot detect an ending any other way.
+- When a meeting is started from VOXA, VOXA keeps a handle to the meeting tab (only validated Google Meet / Zoom addresses; the tab keeps its opener link so VOXA can close it for auto-leave). When you close that tab the meeting is marked **ended** automatically and the **Meeting ended** step opens. A meeting left live for more than 12 hours is closed automatically. VOXA cannot see inside Google Meet or Zoom, so it cannot detect an ending any other way.
 - Google Meet and Zoom do not give VOXA the recording. In the **Meeting ended** step you either add the recording file (it must actually play in the browser; video up to 32 MB, audio up to 20 MB) or use a recording made on this device. You get playback in the page, then **Analyze this recording**, which opens the analysis with the file loaded and tied to the meeting.
 - **Record on this device** is opt-in: tick that everyone agreed, choose audio only or audio and video, then pick the meeting tab (with "Also share tab audio") in the browser's own prompt. Nothing records before that. The recording lives in this tab only, stops at the analysis size limit, and is uploaded only when you press Analyze.
+
+### Protect live (Google Meet and Zoom)
+
+On a live meeting card, press **Protect live**, tick that everyone agreed, and pick the meeting tab with **Also share tab audio** in the browser prompt. VOXA then:
+
+- **Analyzes live.** It transcribes the tab's audio (the other participants; Meet and Zoom do not play your own microphone into the tab) through `/api/live` and scores it with the same engine as Protected call. The card shows the live state (Listening, Low to Critical, or Analysis unavailable), evidence with timestamps and recognition confidence, and the latest words. Transcription streams are capped at 10 minutes on the server, so VOXA reconnects automatically and keeps the risk history. While disconnected it shows "Analysis unavailable".
+- **Stops when the meeting ends.** This happens when the meeting tab is closed, sharing stops, or no meeting audio is heard for 60 s, after a 10-second warning with **Keep listening**.
+- **Can leave the meeting on high risk** (opt-in, off by default). It uses the same policy as Protected call: at least 2 different rules, from at least 2 separate statements, at 75% recognition confidence or higher, fresh analysis, and a 5-second countdown with **Stay in the meeting**. VOXA then closes the meeting tab it opened, so you leave the call. It cannot end the meeting for others. It cannot close a tab it did not open, so the option is only available for meetings started from VOXA in the same browser tab. To allow this, the meeting tab keeps its opener link, and only validated `meet.google.com` / `zoom.us` addresses are opened.
+- **Saves a report.** When it stops, VOXA saves a meeting report: live risk, risk factors, the highlighted conversation, scam-intent graphs, and the recording with waveform and spectrogram. **Also check voices for AI generation** sends the recording to the authenticity detectors.
+
+Limitations:
+- Chrome or Edge on a desktop is needed for tab audio capture.
+- VOXA hears only what the meeting tab plays, and cannot tell speakers apart.
+- The 60-second silence rule can end protection during a long silent stretch, which is why the warning can be cancelled.
+- The recording stops at the 20 MB / 32 MB analysis limit, while live analysis continues.
 
 ### Meeting report
 

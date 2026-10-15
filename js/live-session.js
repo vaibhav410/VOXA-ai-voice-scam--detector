@@ -49,8 +49,9 @@ window.setupVoxaLive = function({$,esc,store,incidents,S,PRI,pill,uid,toast}) {
      clearTimeout(connectionTimer);started=Date.now();phase='recording';
      try {
       rec=new MediaRecorder(stream);
-      rec.ondataavailable=e=>{if(!e.data.size||socket.readyState!==WebSocket.OPEN)return;if(socket.bufferedAmount>1048576){fail('Connection is too slow to keep up. Microphone stopped. Please try again.');return;}socket.send(e.data);};
-      rec.onstop=()=>{if(socket.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'stop'}));};
+      let sendQ=Promise.resolve(); // bytes in order; sending MediaRecorder Blobs directly can fail in Chrome
+      rec.ondataavailable=e=>{if(!e.data.size||socket.readyState!==WebSocket.OPEN)return;if(socket.bufferedAmount>1048576){fail('Connection is too slow to keep up. Microphone stopped. Please try again.');return;}const b=e.data;sendQ=sendQ.then(()=>b.arrayBuffer()).then(buf=>{if(socket.readyState===WebSocket.OPEN)socket.send(buf);}).catch(()=>{});};
+      rec.onstop=()=>{sendQ=sendQ.then(()=>{if(socket.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'stop'}));});};
       rec.start(250);state.textContent='Microphone on · Hindi / English / mixed speech · streaming to Deepgram';
      }catch{fail('The browser could not start recording. Try uploading an audio file instead.');}
     }else if(d.type==='transcript'&&['recording','finalizing'].includes(phase)){
