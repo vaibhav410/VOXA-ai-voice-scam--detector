@@ -13,10 +13,18 @@ export const audoEnabled = (env = process.env) => /^(1|true|on|yes)$/i.test(Stri
 import './js/meeting-links.js';
 const MeetingLinks = globalThis.VoxaMeetingLinks;
 import {attachLive} from './server/live.mjs';
+import {loadConfig, publicConfig} from './server/config.mjs';
+import {createApi} from './server/api.mjs';
+import {createAuth} from './server/auth.mjs';
+import {openDb, migrate} from './server/db.mjs';
+import {correlationId, safeLogger} from './server/audit.mjs';
+import {purgeExpired} from './server/repo.mjs';
+import {cleanupStaleTemp} from './server/media.mjs';
 const root = path.dirname(fileURLToPath(import.meta.url));
+// Existing local setup is supported; these files are never served.
+export function loadEnv() { for (const name of ['.env.local','css/.env.local']) if (existsSync(path.join(root,name))) process.loadEnvFile(path.join(root,name)); }
 export function loadKeys() {
-  // Existing local setup is supported; these files are never served.
-  for (const name of ['.env.local','css/.env.local']) if (existsSync(path.join(root,name))) process.loadEnvFile(path.join(root,name));
+  loadEnv();
   return {sealedrose:process.env.SEALEDROSE_API_KEY || process.env.sealedrose_api,realitydefender:process.env.REALITY_DEFENDER_API_KEY || process.env.reality_defender_api,luxand:process.env.LUXAND_API_KEY || process.env.luxand_api,gemini:process.env.GEMINI_API_KEY || process.env.gemini_api_key,deepgram:process.env.DEEPGRAM_API_KEY || process.env.deepgram_api || process.env.deepgram_api_key};
 }
 const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.woff2':'font/woff2'};
@@ -52,14 +60,26 @@ export function pickAuth(modality, requested, keys, env = process.env) {
 // Only the one extension ID you configure may call the analyze route from outside the VOXA page.
 export const extensionId = (env = process.env) => /^[a-p]{32}$/.test(env.VOXA_EXTENSION_ID || '') ? env.VOXA_EXTENSION_ID : null;
 const extOrigin = () => extensionId() ? `chrome-extension://${extensionId()}` : null;
-export function createServer(keys={}, fetcher=fetch) {
+// Routes that existed before accounts: in Clerk mode they need a signed-in user; provider routes also need consent.
+const GATED={'/api/analyze':{providers:true,group:'analyze'},'/api/transcribe':{providers:true,group:'analyze'},'/api/intelligence':{providers:true,group:'analyze'},'/api/noise':{providers:false,group:'analyze'},'/api/meeting-link/validate':{providers:false,group:'api'}};
+export function createServer(keys={}, fetcher=fetch, opts={}) {
  let busy=false;
- return http.createServer(async(req,res)=>{
-  const json=(status,data)=>{if(!req.complete)req.resume();res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(data));};
+ const cfg=opts.cfg || loadConfig({AUTH_MODE:'demo'});
+ const api=createApi({cfg, db:opts.db || null, auth:opts.auth || createAuth(cfg), logger:opts.logger});
+ const hostOk=h=>cfg.hosts.includes(String(h || '').replace(/:\d+$/,'').toLowerCase());
+ const server=http.createServer(async(req,res)=>{
+  const cid=correlationId();
+  const json=(status,data,extra={})=>{if(!req.complete)req.resume();res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Request-Id':cid,...extra});res.end(JSON.stringify(data));};
   const fail=(status,code,message)=>json(status,{error:message,code});
   try {
-   if (!/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(req.headers.host || '')) return json(403,{error:'Local access only.'});
+   if (!hostOk(req.headers.host)) return json(403,{error:'Local access only.'});
    const url=new URL(req.url,'http://'+req.headers.host);
+   if (url.pathname.startsWith('/api/')) {
+    const h={json,fail,cid};
+    if (await api.handle(req,res,url,h)) return;
+    const gate=GATED[url.pathname];
+    if (gate && req.method==='POST' && !(await api.guard(req,url,h,gate))) return;
+   }
    if (url.pathname === '/api/status' && req.method === 'GET') {
     const details={};
     for(const [name,meta] of Object.entries(PROVIDERS)) {
@@ -68,7 +88,7 @@ export function createServer(keys={}, fetcher=fetch) {
     }
     if(url.searchParams.get('probe')==='1') await healthCheck(details,keys,fetcher);
     const ff=await ffmpegPath();
-    return json(200,{freeMode:freeModeOn(),providers:Object.fromEntries(Object.entries(details).map(([k,d])=>[k,d.configured&&d.allowed])),details,tools:{ffmpeg:Boolean(ff),extension:Boolean(extensionId()),audo:audoEnabled(),audoDisclosure:audoEnabled()?AUDO_DISCLOSURE:null},limits:{voiceMB:20,imageMB:10,videoMB:32},authProvider:{voice:pickAuth('voice','auto',keys),image:pickAuth('image','auto',keys),video:pickAuth('video','auto',keys)}});
+    return json(200,{freeMode:freeModeOn(),providers:Object.fromEntries(Object.entries(details).map(([k,d])=>[k,d.configured&&d.allowed])),details,tools:{ffmpeg:Boolean(ff),extension:Boolean(extensionId()),audo:audoEnabled(),audoDisclosure:audoEnabled()?AUDO_DISCLOSURE:null},auth:publicConfig(cfg),database:await api.health().then(d=>({configured:d.configured,reachable:d.reachable??null,schemaCurrent:d.schemaCurrent??null})).catch(()=>({configured:true,reachable:false})),limits:{voiceMB:20,imageMB:10,videoMB:32},authProvider:{voice:pickAuth('voice','auto',keys),image:pickAuth('image','auto',keys),video:pickAuth('video','auto',keys)}});
    }
    if(url.pathname === '/api/meeting-link/validate' && req.method === 'POST') {
     if(req.headers.origin !== url.origin || req.headers['x-voxa-request'] !== '1') return fail(403,'FORBIDDEN','Open VOXA on this server to validate links.');
@@ -210,10 +230,23 @@ export function createServer(keys={}, fetcher=fetch) {
    res.writeHead(200,{'Content-Type':types[path.extname(target)],'X-Content-Type-Options':'nosniff','Cache-Control':'no-store'});res.end(req.method==='HEAD' ? undefined : data);
   } catch(e) {if(!res.headersSent)json(e.code==='ENOENT'?404:500,{error:e.code==='ENOENT'?'Not found.':'Request could not be completed.'});else res.end();}
  });
+ server.voxa={cfg,api,hostOk};
+ return server;
 }
 if(process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
- const port=Number(process.env.PORT || 5174);
- const server=createServer(loadKeys());server.requestTimeout=300000;
- attachLive(server,loadKeys());
- server.listen(port,'127.0.0.1',()=>console.log(`VOXA running at http://127.0.0.1:${port}`));
+ const keys=loadKeys(), cfg=loadConfig(), log=safeLogger();
+ for (const w of cfg.warnings) console.warn('[config] ' + w);
+ for (const e of cfg.errors) console.error('[config] ERROR ' + e);
+ if (cfg.prod && cfg.errors.length) { console.error('Refusing to start in production with unsafe configuration. Fix the errors above (see PRIVACY_SETUP.md).'); process.exit(1); }
+ let db=null;
+ try {
+  db=await openDb(cfg.db);
+  if (db && db.kind!=='postgres') await migrate(db); // local development database migrates itself
+ } catch(e) { console.error('[db] not available: ' + (e.code || 'connection failed') + '. Server-side history is off until this is fixed (npm run db:check).'); db=null; }
+ const auth=createAuth(cfg);
+ const server=createServer(keys,fetch,{cfg,db,auth,logger:log});server.requestTimeout=300000;
+ attachLive(server,keys,undefined,{hostOk:server.voxa.hostOk,authorize:async req=>{const id=await auth.identifyWs(req);return Boolean(id && !id.invalid);}});
+ const housekeeping=async()=>{ try { if (db && await server.voxa.api.ready()) { const r=await purgeExpired(db); if (r.analyses||r.transcripts||r.invitations||r.auditEvents) log('retention_purge',{count:r.analyses+r.transcripts+r.invitations+r.auditEvents}); } } catch {} try { await cleanupStaleTemp(); } catch {} };
+ housekeeping(); setInterval(housekeeping,3600000).unref();
+ server.listen(cfg.port,'127.0.0.1',()=>console.log(`VOXA running at http://127.0.0.1:${cfg.port} (auth: ${cfg.auth.mode}, database: ${db ? db.kind : 'none'})`));
 }

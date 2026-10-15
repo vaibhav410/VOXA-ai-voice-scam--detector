@@ -1,15 +1,19 @@
 import {WebSocketServer,WebSocket} from 'ws';
 
 // Deepgram key and provider connection remain on the local server.
-export function attachLive(server, keys, connect = (url,opts) => new WebSocket(url,opts)) {
-  const wss = new WebSocketServer({noServer:true,maxPayload:256*1024});
+export function attachLive(server, keys, connect = (url,opts) => new WebSocket(url,opts), opts = {}) {
+  // In Clerk mode the browser offers subprotocols ['voxa-auth', <session token>]; the server answers 'voxa-auth'.
+  const wss = new WebSocketServer({noServer:true,maxPayload:256*1024,handleProtocols:protocols=>protocols.has('voxa-auth') ? 'voxa-auth' : false});
   let active = null;
   server.on('upgrade',(req,socket,head)=>{
     const host=req.headers.host || '';
-    if(!/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host) || req.url!=='/api/live' || req.headers.origin!==`http://${host}` || !keys.deepgram || active) {
+    const hostAllowed = opts.hostOk ? opts.hostOk(host) : /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host);
+    if(!hostAllowed || req.url!=='/api/live' || ![`http://${host}`,`https://${host}`].includes(req.headers.origin) || !keys.deepgram || active) {
       socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');return;
     }
-    wss.handleUpgrade(req,socket,head,client=>{active=client;wss.emit('connection',client);});
+    const go=()=>wss.handleUpgrade(req,socket,head,client=>{active=client;wss.emit('connection',client);});
+    if(!opts.authorize) return go();
+    opts.authorize(req).then(ok=>{ if(ok && !active) go(); else socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n'); }).catch(()=>socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n'));
   });
   wss.on('connection',client=>{
     const url='wss://api.deepgram.com/v1/listen?model=nova-3&language=multi&interim_results=true&smart_format=true&endpointing=300&mip_opt_out=true';

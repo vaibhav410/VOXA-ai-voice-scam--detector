@@ -1,5 +1,5 @@
 import {execFile} from 'node:child_process';
-import {mkdtemp, writeFile, readFile, rm} from 'node:fs/promises';
+import {mkdtemp, writeFile, readFile, rm, readdir, stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 
@@ -68,4 +68,14 @@ export async function extractAudio(bytes, mime) {
     if (err) throw new Error(stderr.slice(0, 200) || 'Audio extraction failed.');
     return readFile(out);
   });
+}
+
+// Scheduled sweep for temp directories left behind by a crash (normal paths delete theirs in finally).
+export async function cleanupStaleTemp(maxAgeMs = 3600000, dir = tmpdir()) {
+  let removed = 0;
+  for (const name of await readdir(dir)) {
+    if (!/^voxa-[A-Za-z0-9]{6}$/.test(name)) continue;
+    try { const st = await stat(path.join(dir, name)); if (st.isDirectory() && Date.now() - st.mtimeMs > maxAgeMs) { await rm(path.join(dir, name), {recursive: true, force: true}); removed++; } } catch {}
+  }
+  return removed;
 }

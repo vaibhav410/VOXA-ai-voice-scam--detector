@@ -87,6 +87,8 @@ export function sanitizeReport(i, {retainTranscript = false} = {}) {
   if (reportType === 'privacy_analysis') providerRuns.push({provider: 'voxa-local', task: 'privacy', status: 'ok', errorCode: null});
 
   // Sensitive text goes only into the encrypted column, and only when the caller asked to retain it.
+  // Is there any sensitive text at all? (Reported back as 'none' vs 'not_retained', so the user knows what happened.)
+  const sensitiveAvailable = Boolean((reportType === 'privacy_analysis' ? i.privacy?.redactedText : i.transcript?.text) || rules.some(r => r?.excerpt));
   let sensitive = null;
   if (retainTranscript) {
     const text = reportType === 'privacy_analysis' ? str(i.privacy?.redactedText, 20000) : str(i.transcript?.text, 20000);
@@ -97,6 +99,6 @@ export function sanitizeReport(i, {retainTranscript = false} = {}) {
     clientRef, reportType, modality, status: STATE_TO_STATUS[i.state] || 'completed', reviewStatus: pickEnum(i.status, REVIEW) || 'open',
     title: media?.name || (reportType === 'privacy_analysis' ? str(i.title, 200) || 'Privacy scan' : null), sector: summary.sector, policyVersion: summary.policyVersion,
     uploadRef: typeof i.uploadId === 'string' && /^UP-[A-Za-z0-9]{4,20}$/.test(i.uploadId) ? i.uploadId : null,
-    summary, findings, providerRuns, sensitive
+    summary, findings, providerRuns, sensitive, sensitiveAvailable
   }};
 }
