@@ -187,11 +187,16 @@ window.makeCallHost = function (c) {
       });
     }
 
+    if (!window.isSecureContext) {
+      const secure = 'https://' + location.host + location.pathname + location.hash;
+      $('#pc-setup').insertAdjacentHTML('afterbegin', `<div class="pc-warn" role="alert"><b>The microphone is blocked on this address</b><p>Browsers allow calls and recording only on HTTPS or localhost. Open <a href="${esc(secure)}">${esc(secure)}</a> instead (on a local network address, accept the one-time certificate warning).</p></div>`);
+    }
     $('#pc-auto').onchange = () => savePolicy(policyFromForm());
     document.querySelectorAll('.pc-grid input, .pc-grid select').forEach(el => (el.onchange = () => savePolicy(policyFromForm())));
     $('#pc-start').onclick = async () => {
       if (!$('#pc-consent').checked) return toast('Confirm you have the other person\'s permission first.');
-      if (!window.RTCPeerConnection || !navigator.mediaDevices?.getUserMedia) return toast('This browser cannot make calls.');
+      if (!window.isSecureContext) return toast('The microphone is blocked because this page is not secure. Open VOXA with https:// (for example https://' + location.host + ') or on localhost.');
+      if (!window.RTCPeerConnection || !navigator.mediaDevices?.getUserMedia) return toast('This browser cannot make calls. Try a recent Chrome, Edge, Firefox or Safari.');
       const policy = policyFromForm(); savePolicy(policy);
       $('#pc-start').disabled = true; $('#pc-state').textContent = 'Starting…';
       try { mic = await navigator.mediaDevices.getUserMedia({audio: {echoCancellation: true, noiseSuppression: true}}); }

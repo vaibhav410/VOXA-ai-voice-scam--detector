@@ -232,6 +232,7 @@
       if (rec && rec.state === 'recording') return rec.stop();
       if(micPending)return;
       if (!$('#a-consent').checked) return toast('Confirm consent before recording.');
+      if (!window.isSecureContext) return toast('The microphone is blocked because this page is not secure. Open VOXA with https:// (for example https://' + location.host + ') or on localhost.');
       if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return toast('Recording is not supported in this browser.');
       micPending=true;b.disabled=true;
       try {

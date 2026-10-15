@@ -14,6 +14,7 @@
 
   $('#g-join-btn').onclick = async () => {
     if (!$('#g-consent').checked) return status('Please agree to the analysis to join.');
+    if (!window.isSecureContext) return status('The microphone is blocked because this page is not secure. Open VOXA with https:// (for example https://' + location.host + ') or on localhost.');
     if (!window.RTCPeerConnection || !navigator.mediaDevices?.getUserMedia) return status('This browser cannot make calls. Try a recent Chrome, Edge, Firefox or Safari.');
     $('#g-join-btn').disabled = true; status('Asking for microphone…');
     try { mic = await navigator.mediaDevices.getUserMedia({audio: {echoCancellation: true, noiseSuppression: true}}); }

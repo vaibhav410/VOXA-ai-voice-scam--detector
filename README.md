@@ -148,7 +148,7 @@ If transcription fails or disconnects, the page shows "Analysis unavailable" and
 - Only the guest's speech is analyzed (the host is the person being protected).
 - Detection is rule-based on automatic transcripts. It can miss scams phrased in unexpected ways and can mishear speech in noise or mixed languages. It does not check whether the voice is synthetic. This is decision support, not proof.
 - Each active call uses one Deepgram streaming session (limit `VOXA_MAX_LIVE_SESSIONS`, default 4). Rooms are kept in server memory, so a server restart ends open calls.
-- Microphone access on another device needs HTTPS (the Cloudflare URL works; a plain LAN `http://` address does not).
+- Microphone access on another device needs HTTPS. Use the Cloudflare URL, or run `npm run dev -- --host 0.0.0.0` (same as `--lan`), which serves `https://<your-LAN-IP>:5175` with a self-signed certificate kept in `data/lan-tls/` and renewed when your address changes. Each device shows a one-time "not private" warning: choose Advanced → Continue. Add `--http` for plain HTTP (no microphone on other devices).
 
 **Tests:**
 - `node --test tests/call-risk.test.mjs tests/call.test.mjs` covers the policy and signalling security.

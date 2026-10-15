@@ -32,6 +32,7 @@ window.setupVoxaLive = function({$,esc,store,incidents,S,PRI,pill,uid,toast}) {
  function fail(message) {if(disposed)return;finish(message);if(socket?.readyState<2)socket.close();}
  start.onclick=async()=>{
   if(!consent.checked)return toast('Confirm consent before starting the microphone.');
+  if(!window.isSecureContext)return toast('The microphone is blocked because this page is not secure. Open VOXA with https:// (for example https://' + location.host + ') or on localhost.');
   if(!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder)return toast('Microphone recording is unavailable. Upload a recording instead.');
   const current=++generation;phase='connecting';saved=false;finalText='';interim='';events=[];seen=new Set();rec=null;stream=null;ended=0;sector=$('#sector').value;
   start.disabled=true;stop.disabled=false;save.disabled=true;consent.disabled=true;$('#sector').disabled=true;

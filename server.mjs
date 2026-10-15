@@ -1,4 +1,5 @@
 import http from 'node:http';
+import https from 'node:https';
 import {networkInterfaces} from 'node:os';
 import {readFile} from 'node:fs/promises';
 import {existsSync} from 'node:fs';
@@ -22,6 +23,7 @@ import {correlationId, safeLogger} from './server/audit.mjs';
 import {purgeExpired} from './server/repo.mjs';
 import {cleanupStaleTemp} from './server/media.mjs';
 import {createCallRooms, attachCall} from './server/call.mjs';
+import {lanTls} from './server/lan-tls.mjs';
 const root = path.dirname(fileURLToPath(import.meta.url));
 // Existing local setup is supported; these files are never served.
 export function loadEnv() { for (const name of ['.env.local','css/.env.local']) if (existsSync(path.join(root,name))) process.loadEnvFile(path.join(root,name)); }
@@ -71,13 +73,13 @@ export function createServer(keys={}, fetcher=fetch, opts={}) {
  const api=createApi({cfg, db:opts.db || null, auth:opts.auth || createAuth(cfg), logger:opts.logger, calls});
  calls.audit=api.audit;
  const hostOk=h=>cfg.hosts.includes(String(h || '').replace(/:\d+$/,'').toLowerCase());
- const server=http.createServer(async(req,res)=>{
+ const server=(opts.tls ? h=>https.createServer(opts.tls,h) : h=>http.createServer(h))(async(req,res)=>{
   const cid=correlationId();
   const json=(status,data,extra={})=>{if(!req.complete)req.resume();res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Request-Id':cid,...extra});res.end(JSON.stringify(data));};
   const fail=(status,code,message)=>json(status,{error:message,code});
   try {
    if (!hostOk(req.headers.host)) return json(403,{error:'Local access only.'});
-   const url=new URL(req.url,'http://'+req.headers.host);
+   const url=new URL(req.url,(opts.tls?'https://':'http://')+req.headers.host);
    // Same-origin check that also works behind HTTPS (Cloudflare tunnel): the browser sends https://host while
    // this server sees plain http. Configured origins (ALLOWED_ORIGINS / the tunnel launcher) are accepted.
    const originOk=o=>Boolean(o) && (o===url.origin || cfg.origins.includes(o));
@@ -245,12 +247,18 @@ if(process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.
  const portArg=process.argv.find(arg=>/^--port=\d+$/.test(arg));
  const cfg=loadConfig(portArg ? {...process.env,PORT:portArg.slice(7)} : process.env), log=safeLogger();
  // --lan (or VOXA_LAN=1): share on the local network. Only this machine's private (RFC 1918) addresses are trusted.
- const lan=process.argv.includes('--lan') || cfg.lan;
+ // `--host 0.0.0.0` / `--host=0.0.0.0` (as in `npm run dev -- --host 0.0.0.0`) means the same as --lan.
+ const hostArg=process.argv.find((arg,i)=>arg.startsWith('--host=') ? true : process.argv[i-1]==='--host');
+ const lan=process.argv.includes('--lan') || cfg.lan || ['0.0.0.0','--host=0.0.0.0'].includes(hostArg);
  const lanAddresses=lan ? (cfg.lanIps.length ? cfg.lanIps : privateIPv4()) : [];
  if(lan && cfg.prod) { console.error('Use the production host and TLS configuration for public hosting; --lan is for local network previews.'); process.exit(1); }
+ // LAN mode serves HTTPS (self-signed) so other devices can use the microphone; --http keeps plain HTTP.
+ const tls=lan && !process.argv.includes('--http') ? await lanTls(path.join(root,'data','lan-tls'),lanAddresses) : null;
+ const scheme=tls?'https':'http';
  if(lan) {
   cfg.hosts=[...new Set([...cfg.hosts,...lanAddresses])];
-  cfg.origins=[...new Set([...cfg.origins,...lanAddresses.map(ip=>`http://${ip}:${cfg.port}`)])];
+  cfg.origins=[...new Set([...cfg.origins,...['localhost','127.0.0.1',...lanAddresses].flatMap(h=>[`http://${h}:${cfg.port}`,`https://${h}:${cfg.port}`])])];
+  if(tls) cfg.warnings=cfg.warnings.map(w=>w.startsWith('LAN mode:') ? `LAN mode (HTTPS, self-signed certificate${tls.created?' just created':''}): other devices show a one-time "not private" warning; choose Advanced → Continue. The microphone then works.` : w);
  }
  for (const w of cfg.warnings) console.warn('[config] ' + w);
  for (const e of cfg.errors) console.error('[config] ERROR ' + e);
@@ -261,7 +269,7 @@ if(process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.
   if (db && db.kind!=='postgres') await migrate(db); // local development database migrates itself
  } catch(e) { console.error('[db] not available: ' + (e.code || 'connection failed') + '. Server-side history is off until this is fixed (npm run db:check).'); db=null; }
  const auth=createAuth(cfg);
- const server=createServer(keys,fetch,{cfg,db,auth,logger:log});server.requestTimeout=300000;
+ const server=createServer(keys,fetch,{cfg,db,auth,logger:log,tls});server.requestTimeout=300000;
  attachLive(server,keys,undefined,{hostOk:server.voxa.hostOk,authorize:async req=>{const id=await auth.identifyWs(req);return Boolean(id && !id.invalid);}});
  attachCall(server,server.voxa.calls,{hostOk:server.voxa.hostOk,originOk:(o,host)=>Boolean(o) && (o===`http://${host}` || o===`https://${host}` || cfg.origins.includes(o))});
  // Any other WebSocket path: refuse instead of leaving the socket hanging.
@@ -269,7 +277,7 @@ if(process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.
  const housekeeping=async()=>{ try { if (db && await server.voxa.api.ready()) { const r=await purgeExpired(db); if (r.analyses||r.transcripts||r.invitations||r.auditEvents) log('retention_purge',{count:r.analyses+r.transcripts+r.invitations+r.auditEvents}); } } catch {} try { await cleanupStaleTemp(); } catch {} };
  housekeeping(); setInterval(housekeeping,3600000).unref();
  server.listen(cfg.port,lan?'0.0.0.0':cfg.bindHost,()=>{
-  console.log(`VOXA running at http://127.0.0.1:${cfg.port} (auth: ${cfg.auth.mode}, database: ${db ? db.kind : 'none'})`);
-  for(const ip of lanAddresses)console.log(`Same-network access: http://${ip}:${cfg.port}`);
+  console.log(`VOXA running at ${scheme}://127.0.0.1:${cfg.port} (auth: ${cfg.auth.mode}, database: ${db ? db.kind : 'none'})`);
+  for(const ip of lanAddresses)console.log(`Same-network access: ${scheme}://${ip}:${cfg.port}`);
  });
 }
