@@ -1,4 +1,5 @@
 import http from 'node:http';
+import {networkInterfaces} from 'node:os';
 import {readFile} from 'node:fs/promises';
 import {existsSync} from 'node:fs';
 import path from 'node:path';
@@ -234,7 +235,16 @@ export function createServer(keys={}, fetcher=fetch, opts={}) {
  return server;
 }
 if(process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
- const keys=loadKeys(), cfg=loadConfig(), log=safeLogger();
+ const keys=loadKeys();
+ const portArg=process.argv.find(arg=>/^--port=\d+$/.test(arg));
+ const cfg=loadConfig(portArg ? {...process.env,PORT:portArg.slice(7)} : process.env), log=safeLogger();
+ const lan=process.argv.includes('--lan');
+ const lanAddresses=lan ? Object.values(networkInterfaces()).flat().filter(ip=>ip.family==='IPv4'&&!ip.internal&&!ip.address.startsWith('169.254.')).map(ip=>ip.address) : [];
+ if(lan && cfg.prod) { console.error('Use the production host and TLS configuration for public hosting; --lan is for local network previews.'); process.exit(1); }
+ if(lan) {
+  cfg.hosts=[...new Set([...cfg.hosts,...lanAddresses])];
+  cfg.origins=[...new Set([...cfg.origins,...lanAddresses.map(ip=>`http://${ip}:${cfg.port}`)])];
+ }
  for (const w of cfg.warnings) console.warn('[config] ' + w);
  for (const e of cfg.errors) console.error('[config] ERROR ' + e);
  if (cfg.prod && cfg.errors.length) { console.error('Refusing to start in production with unsafe configuration. Fix the errors above (see PRIVACY_SETUP.md).'); process.exit(1); }
@@ -248,5 +258,8 @@ if(process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.
  attachLive(server,keys,undefined,{hostOk:server.voxa.hostOk,authorize:async req=>{const id=await auth.identifyWs(req);return Boolean(id && !id.invalid);}});
  const housekeeping=async()=>{ try { if (db && await server.voxa.api.ready()) { const r=await purgeExpired(db); if (r.analyses||r.transcripts||r.invitations||r.auditEvents) log('retention_purge',{count:r.analyses+r.transcripts+r.invitations+r.auditEvents}); } } catch {} try { await cleanupStaleTemp(); } catch {} };
  housekeeping(); setInterval(housekeeping,3600000).unref();
- server.listen(cfg.port,'127.0.0.1',()=>console.log(`VOXA running at http://127.0.0.1:${cfg.port} (auth: ${cfg.auth.mode}, database: ${db ? db.kind : 'none'})`));
+ server.listen(cfg.port,lan?'0.0.0.0':'127.0.0.1',()=>{
+  console.log(`VOXA running at http://127.0.0.1:${cfg.port} (auth: ${cfg.auth.mode}, database: ${db ? db.kind : 'none'})`);
+  for(const ip of lanAddresses)console.log(`Same-network access: http://${ip}:${cfg.port}`);
+ });
 }

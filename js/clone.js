@@ -16,8 +16,8 @@ window.makeClone = function (c) {
     detect: { cta: 'Analyze media', ctaHref: '#/analyze', groups: [
       ['Overview', [['Dashboard', '⌂', '#/call-safety'], ['Analyze media', '', '#/analyze'], ['History', '', '#/history']]],
       ['Products', [['Meetings', '▭', '#/meetings'], ['Deepfake Detect Reports', '◉', '#/reports'], ['Chrome Extension', '◍', '#/chrome-extension'], ['Integrations', '▦', '#/integrations']]],
-      ['Models', [['Intelligence', '◎', '#/intelligence'], ['Signal', '⛉', '#/signal'], ['Watermarking', '⚑', '#/watermarking'], ['Noise reduction', '', '#/noise']]],
-      ['Manage', [['API Keys', '⚷', '#/api-keys'], ['Manage Team', '☷', '#/team'], ['Settings', '⚙', '#/settings']]]] }
+      ['Models', [['Intelligence', '◎', '#/intelligence'], ['Signal', '⛉', '#/signal'], ['Watermarking', '⚑', '#/watermarking'], ['Noise reduction', '', '#/noise'], ['Privacy scan', '', '#/privacy']]],
+      ['Manage', [['API Keys', '⚷', '#/api-keys'], ['Manage Team', '☷', '#/team'], ['Audit log', '', '#/audit'], ['Settings', '⚙', '#/settings']]]] }
   };
 
   SIDE.live = {cta:'Start monitoring',ctaHref:'#/live',groups:[['Live',[['Live monitor','','#/live'],['Live sessions','','#/incidents/live']]],['Manage',[['Settings','','#/settings']]]]};

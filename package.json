@@ -4,9 +4,16 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
+    "start:lan": "node server.mjs --lan --port=5175",
     "test": "node --test tests/*.test.mjs",
     "evaluate:rules": "node tools/evaluate-rules.mjs",
-    "evaluate:audio": "node tools/evaluate-audio.mjs"
+    "evaluate:audio": "node tools/evaluate-audio.mjs",
+    "db:check": "node tools/db.mjs check",
+    "db:migrate": "node tools/db.mjs migrate",
+    "db:status": "node tools/db.mjs status",
+    "privacy:check": "node tools/privacy-check.mjs",
+    "admin:bootstrap": "node tools/admin-bootstrap.mjs",
+    "keys:generate": "node tools/keygen.mjs"
   },
   "engines": {
     "node": ">=22"

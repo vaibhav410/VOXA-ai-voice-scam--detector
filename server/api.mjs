@@ -28,7 +28,7 @@ const ROUTES = [
   ['DELETE', /^\/api\/teams\/([^/]+)\/members\/([^/]+)$/, 'removeMember'],
   ['POST', /^\/api\/invitations\/accept$/, 'acceptInvite'],
   ['GET', /^\/api\/admin\/audit-events$/, 'auditEvents'],
-  ['POST', /^\/api\/privacy\/scan$/, 'privacyScan', {group: 'privacy'}],
+  ['POST', /^\/api\/privacy\/scan$/, 'privacyScan', {group: 'privacy', db: 'optional'}],
   ['GET', /^\/api\/me\/preferences$/, 'getPrefs'],
   ['PUT', /^\/api\/me\/preferences$/, 'putPrefs'],
   ['GET', /^\/api\/me\/export$/, 'exportMe'],
@@ -200,6 +200,7 @@ export function createApi({cfg, db, auth, logger = safeLogger()}) {
       const scan = scanText(body.text);
       if (scan.error) return h.fail(413, scan.error, scan.message);
       let saved = null;
+      if (body.save === true && !u) return h.fail(503, 'DB_NOT_CONFIGURED', 'Saving needs the database. The scan itself works without it.');
       if (body.save === true) {
         const prefs = await repo.getPreferences(db, u.id);
         const retain = body.retainTranscript === true && prefs.transcript_retention_opt_in === true;
@@ -249,8 +250,10 @@ export function createApi({cfg, db, auth, logger = safeLogger()}) {
       if (method !== 'GET' && (req.headers['x-voxa-request'] !== '1' || !(req.headers.origin === url.origin || cfg.origins.includes(req.headers.origin)))) { h.fail(403, 'FORBIDDEN', 'Open VOXA on this server to make changes.'); return true; }
       const id = await identify(req, h); if (!id) return true;
       if (opt.db === false) { await handlers[name](req, h, m, id, null, url); return true; }
-      const u = await principal(id, h); if (!u) return true;
-      if (!allow(`${opt.group || 'api'}:${u.id}`, ...LIMITS[opt.group || 'api'])) { await deny(h, u, 'rate_limited', 'route', name, {severity: 'low', classification: 'suspicious', metadata: {route: name}}); h.fail(429, 'RATE_LIMITED', 'Too many requests. Wait a minute and try again.'); return true; }
+      // db 'optional': works without a database (e.g. a local privacy scan); saving still needs one.
+      const u = opt.db === 'optional' && !(db && (await ready())) ? null : await principal(id, h);
+      if (!u && opt.db !== 'optional') return true;
+      if (!allow(`${opt.group || 'api'}:${u?.id || id.subject}`, ...LIMITS[opt.group || 'api'])) { await deny(h, u, 'rate_limited', 'route', name, {severity: 'low', classification: 'suspicious', metadata: {route: name}}); h.fail(429, 'RATE_LIMITED', 'Too many requests. Wait a minute and try again.'); return true; }
       await handlers[name](req, h, m, id, u, url);
       return true;
     },

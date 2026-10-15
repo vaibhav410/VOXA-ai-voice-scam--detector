@@ -2,7 +2,7 @@
 // development and tests, no install). All SQL is parameterized; migrations are versioned files in
 // supabase/migrations, applied in order, each inside a transaction, and never drop data.
 import {readdir, readFile} from 'node:fs/promises';
-import {readFileSync} from 'node:fs';
+import {readFileSync, mkdirSync} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -12,7 +12,8 @@ export async function openDb(dbCfg) {
   if (!dbCfg || dbCfg.kind === 'none') return null;
   if (dbCfg.kind === 'pglite' || dbCfg.kind === 'memory') {
     const {PGlite} = await import('@electric-sql/pglite');
-    const pg = dbCfg.kind === 'memory' ? new PGlite() : new PGlite(dbCfg.dir);
+    if (dbCfg.kind !== 'memory') mkdirSync(path.resolve(dbCfg.dir), {recursive: true});
+    const pg = dbCfg.kind === 'memory' ? new PGlite() : new PGlite(path.resolve(dbCfg.dir));
     await pg.waitReady;
     const q = async (text, params = []) => (await pg.query(text, params)).rows;
     return {

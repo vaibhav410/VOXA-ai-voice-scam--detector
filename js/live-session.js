@@ -40,7 +40,7 @@ window.setupVoxaLive = function({$,esc,store,incidents,S,PRI,pill,uid,toast}) {
    const source=await navigator.mediaDevices.getUserMedia({audio:true});
    if(disposed||current!==generation||phase!=='connecting'){source.getTracks().forEach(t=>t.stop());return;}
    stream=source;state.textContent='Connecting securely to Deepgram…';
-   socket=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/api/live');
+   socket=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/api/live',window.VoxaAuth?.wsProtocols?.());
    connectionTimer=setTimeout(()=>{if(phase==='connecting')fail('Connection timed out. Check the Deepgram service in Settings and try again.');},20000);
    socket.onmessage=e=>{
     if(disposed||current!==generation)return;let d;try{d=JSON.parse(e.data);}catch{return;}

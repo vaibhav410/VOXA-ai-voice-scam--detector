@@ -36,6 +36,7 @@
       if (['incidents','alerts'].includes(k)) {
         localStorage.setItem('voxa:'+k,JSON.stringify(v.filter(x=>x.persist)));
         sessionStorage.setItem('voxa:'+k,JSON.stringify(v.filter(x=>!x.persist)));
+        if (k === 'incidents') window.VoxaSync?.changed(v);
       } else localStorage.setItem('voxa:' + k, JSON.stringify(v));
       return true;
     } catch { toast('Browser storage is full or blocked. Export or delete reports before saving.'); return false; } },
@@ -55,11 +56,11 @@
   const uid = () => 'INC-' + Date.now().toString(36).toUpperCase().slice(-6) + Math.random().toString(36).slice(2, 4).toUpperCase();
   const upid = () => 'UP-' + uid().slice(4);
   // Report types. New reports store the type; older saved reports derive it, so nothing needs migrating.
-  const RT = { voice_authenticity: 'Voice authenticity', scam_analysis: 'Scam analysis', noise_analysis: 'Noise analysis', image_authenticity: 'Image authenticity', video_authenticity: 'Video authenticity' };
+  const RT = { voice_authenticity: 'Voice authenticity', scam_analysis: 'Scam analysis', noise_analysis: 'Noise analysis', privacy_analysis: 'Privacy scan', image_authenticity: 'Image authenticity', video_authenticity: 'Video authenticity' };
   const reportTypeOf = i => i.reportType || (i.media?.source === 'live' || !i.media ? 'scam_analysis' : { voice: 'voice_authenticity', image: 'image_authenticity', video: 'video_authenticity' }[i.modality || 'voice'] || 'voice_authenticity');
   window.VoxaReportType = reportTypeOf; window.VoxaReportTypes = RT;
   // Read-only dashboards describe calls; noise reports are separate documents. Writers keep the full list.
-  const callIncidents = () => incidents().filter(i => reportTypeOf(i) !== 'noise_analysis');
+  const callIncidents = () => incidents().filter(i => !['noise_analysis', 'privacy_analysis'].includes(reportTypeOf(i)));
   const fmt = t => new Date(t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 
   const C = makeClone({ esc, store, toast, $, incidents: callIncidents, S, pill, PRI, STATUS, fmt, rerender: () => render() });
@@ -85,7 +86,7 @@
   document.addEventListener('click', e => { if (!menu.contains(e.target)) toggle(false); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') toggle(false); });
   menu.addEventListener('click', e => { if (e.target.closest('a')) toggle(false); });
-  $('#logout').onclick = () => { cleanupAnalyze(); Safety.cleanup(); store.del('session'); sessionStorage.removeItem('voxa:incidents'); sessionStorage.removeItem('voxa:alerts'); location.href = 'login.html?out=1'; };
+  $('#logout').onclick = async () => { cleanupAnalyze(); Safety.cleanup(); store.del('session'); sessionStorage.removeItem('voxa:incidents'); sessionStorage.removeItem('voxa:alerts'); try { await window.VoxaAuth?.signOut?.(); } catch {} location.href = 'login.html?out=1'; };
   const mobileLayout = matchMedia('(max-width:800px)');
   const mobileMenu = $('#mobile-menu');
   const setSidebar = open => { $('#sidebar').classList.toggle('collapsed',!open); $('.app').classList.toggle('sidebar-is-collapsed',!open); mobileMenu.setAttribute('aria-expanded',String(open)); mobileMenu.setAttribute('aria-label',open?'Close navigation':'Open navigation'); };
@@ -214,7 +215,7 @@
       const signal=beginRequest(); state.textContent = 'Transcribing with ' + provider + '…';
       try {
         const q = new URLSearchParams({modality,textProvider:provider});
-        const r = await fetch('/api/transcribe?' + q,{method:'POST',headers:{'Content-Type':mediaMime(),'X-Voxa-Request':'1'},body:selectedBlob,signal});
+        const r = await fetch('/api/transcribe?' + q,{method:'POST',headers:{'Content-Type':mediaMime(),'X-Voxa-Request':'1','X-Voxa-Provider-Consent':'1'},body:selectedBlob,signal});
         const d = await r.json(); if (!r.ok) throw new Error(d.error || 'Transcription failed.');
         if (d.extraction?.status !== 'ok') throw new Error(d.extraction?.message || 'No transcript returned.');
         if (disposed) return;
@@ -287,7 +288,7 @@
         const q = new URLSearchParams({modality:lockMod,provider:$('#a-provider').value,extract:$('#a-extract').checked ? '1':'0',textProvider:$('#a-text-provider').value,liveness:$('#a-live')?.checked ? '1':'0',soundtrack:$('#a-soundtrack')?.checked ? '1':'0'});
         const signal=beginRequest();
         try {
-          const response = await postBlob('/api/analyze?' + q, lockedBlob, mediaMime(), signal, f => { if (disposed) return; st.dataset.state = f < 1 ? 'uploading' : 'processing'; st.textContent = f < 1 ? `Uploading… ${Math.round(f * 100)}%` : 'Checking authenticity and transcript. This can take up to a minute.'; });
+          const response = await postBlob('/api/analyze?' + q, lockedBlob, mediaMime(), signal, f => { if (disposed) return; st.dataset.state = f < 1 ? 'uploading' : 'processing'; st.textContent = f < 1 ? `Uploading… ${Math.round(f * 100)}%` : 'Checking authenticity and transcript. This can take up to a minute.'; }, {'X-Voxa-Provider-Consent': '1'});
           remote = response.data;
           if(disposed)return;
           if (!response.ok) { const err = new Error(remote.error || 'Analysis failed.'); err.unsupported = response.status === 415 || response.status === 422; throw err; }
@@ -384,6 +385,9 @@
     previews.set(inc.id, { url: URL.createObjectURL(blob), kind: 'voice', enhancedUrl });
     return inc.id;
   }
+  const Acct = makeAccount({ $, esc, toast, fmt });
+  const Priv = makePrivacy({ $, esc, toast, fmt, store, incidents, uid, section, table, STATUS, previews });
+  const Sync = window.VoxaSync = makeSync({ store, incidents, toast, rerender: () => render() });
   const NP = makeNoisePage({ $, esc, incidents, fmt, reportTypeOf, postBlob, saveNoiseReport, setCleanup: fn => { cleanupAnalyze = fn; }, getSector: () => sector, upid, toast });
   const INTEL_ROWS = [['language','Language'],['dialect','Dialect'],['speakers','Speaker info'],['tone','Tone'],['context','Context'],['message','Message'],['translation','Translation (English)']];
   // Scam-intent graphs. Everything is computed from the rule matches of this report; nothing is estimated.
@@ -427,6 +431,7 @@
     const i = incidents().find(x => x.id === id);
     if (!i) return `<div class="wrapv"><h1>Report not found</h1><p class="sub">It may have been deleted. <a class="link" href="#/incidents">Back to call reports</a></p></div>`;
     if (reportTypeOf(i) === 'noise_analysis' && i.noise) return NR.view(i);
+    if (reportTypeOf(i) === 'privacy_analysis' && i.privacy) return Priv.report(i);
     const mod = modOf(i), M = MODS[mod], sec = S[i.sector], it = i.intent;
     const audioOnly = i.authenticity?.status !== 'ok' && i.audioAuthenticity?.status === 'ok';
     const au = audioOnly ? i.audioAuthenticity : i.authenticity;
@@ -461,8 +466,8 @@
       : transcript.trim().length >= 20 ? `<p class="rep-note">Generate a structured reading of the transcript: language, context, message, English translation and fraud reasoning.</p><div class="row-actions no-print" style="margin-top:0"><button class="btn" id="i-intel">Generate intelligence analysis</button><span id="i-intel-state" class="sub" role="status" style="margin:0;align-self:center"></span></div>`
       : `<p class="rep-note" style="margin:0">Intelligence analysis needs a transcript. Run an analysis with Deepgram or Gemini transcription, or paste one.</p>`;
     const intent = it.status !== 'ok' ? `<p class="rep-note" style="margin:0">Not enough meaningful transcript to assess. No risk rating is shown.</p>`
-      : `<div class="rep-row">${pill(PRI, i.priority)}<span>${it.rules.length ? `This ${mod === 'voice' ? 'call' : mod} shows ${esc(sec.summary)}.` : 'No scam-intent rules were triggered by this transcript.'}</span></div>${it.rules.map(r => `<div class="ev"><b>${esc(r.label)}</b> <small>weight ${r.weight}</small>“${esc(r.excerpt)}”</div>`).join('')}${intentGraphs(it, sec, transcript, i.priority)}<p class="rep-note">Rule score ${it.score} · ${it.words} words assessed on this device.</p>`;
-    const transcriptBody = transcript ? `<div class="transcript-body">${esc(transcript)}</div><p class="rep-note">${esc(source)}${i.transcript?.provisional ? ' (includes interim text)' : ''} · ${(transcript.match(/\S+/g) || []).length} words. Automatic transcripts can contain errors; verify against the recording.</p><div class="no-print"><button class="btn sec" id="i-transcript">Download transcript</button></div>`
+      : `<div class="rep-row">${pill(PRI, i.priority)}<span>${it.rules.length ? `This ${mod === 'voice' ? 'call' : mod} shows ${esc(sec.summary)}.` : 'No scam-intent rules were triggered by this transcript.'}</span></div>${it.rules.map(r => `<div class="ev"><b>${esc(r.label)}</b> <small>weight ${r.weight}</small>${r.excerpt ? `“${esc(r.excerpt)}”` : '<small>Quoted text is not stored with saved reports.</small>'}</div>`).join('')}${intentGraphs(it, sec, transcript, i.priority)}<p class="rep-note">Rule score ${it.score} · ${it.words} words assessed on this device.</p>`;
+    const transcriptBody = transcript ? `<div class="transcript-body">${esc(transcript)}</div><p class="rep-note">${esc(source)}${i.transcript?.provisional ? ' (includes interim text)' : ''} · ${(transcript.match(/\S+/g) || []).length} words. Automatic transcripts can contain errors; verify against the recording.</p><div class="no-print"><button class="btn sec" id="i-transcript">Download transcript</button> <button class="btn sec" id="i-pii">Scan for personal data</button></div>`
       : `<div class="transcript-empty">${esc(i.extraction?.message || 'No transcript was available. Choose Deepgram or Gemini when you run a new analysis.')}</div>`;
     const mi = i.mediaInfo || {};
     const stream = table([['Detected content type', mi.detectedType], ['Audio codec', mi.audio ? mi.audio.codec + ', ' + mi.audio.sampleRate + ' Hz' : null], ['Video codec', mi.video ? mi.video.codec + ', ' + mi.video.width + '×' + mi.video.height : null], ['Speech language', i.language],['Media type', media?.mime], ['Size', media?.size ? media.size.toLocaleString() + ' bytes' : null], ['Duration', media?.duration ? media.duration + ' s' : null], ['Sample rate', media?.sampleRate ? media.sampleRate.toLocaleString() + ' Hz' : null], ['Channels', media?.channels], ['Dimensions', media?.width ? media.width + '×' + media.height + ' px' : null], ['Source', media?.source === 'live' ? 'Live microphone stream' : media ? 'Uploaded or recorded file' : null], ['SHA-256', media?.sha256]]);
@@ -499,6 +504,7 @@
     const st = $('#i-status'); if (!st) return;
     st.onchange = () => { save(x => ({ ...x, status: st.value })); render(); };
     $('#i-add').onclick = () => { const t = $('#i-note').value.trim(); if (!t) return; save(x => ({ ...x, notes: [...x.notes, { at: Date.now(), text: t }] })); render(); };
+    $('#i-pii')?.addEventListener('click', () => { const r = incidents().find(x => x.id === id); try { sessionStorage.setItem('voxa:privacyText', r?.transcript?.text || ''); } catch {} location.hash = '#/privacy'; });
     $('#i-transcript')?.addEventListener('click', () => {
       const report = incidents().find(x => x.id === id);
       const url = URL.createObjectURL(new Blob([report.transcript.text],{type:'text/plain;charset=utf-8'}));
@@ -516,7 +522,7 @@
     $('#i-intel')?.addEventListener('click', async e => {
       const b = e.currentTarget, st = $('#i-intel-state'), r = incidents().find(x => x.id === id); b.disabled = true; st.textContent = 'Analyzing transcript with Gemini…';
       try {
-        const res = await fetch('/api/intelligence', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Voxa-Request': '1' }, body: JSON.stringify({ text: r.transcript.text }), signal: AbortSignal.timeout(120000) });
+        const res = await fetch('/api/intelligence', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Voxa-Request': '1', 'X-Voxa-Provider-Consent': '1' }, body: JSON.stringify({ text: r.transcript.text }), signal: AbortSignal.timeout(120000) });
         const d = await res.json(); if (!res.ok) throw new Error(d.error || 'Analysis failed.');
         if (d.intelligence.status !== 'ok') throw new Error(d.intelligence.message);
         save(x => ({ ...x, intelligence: d.intelligence })); render();
@@ -546,7 +552,7 @@
   }
   /* ---------- router ---------- */
   const Hist = makeHistory({$,esc,store,incidents,PRI,pill,STATUS,toast,reportTypeOf,RT});
-  const OWN = { history:['History',Hist.View,Hist.setup], noise:['Noise reduction',NP.View,NP.setup], 'call-safety':['Call safety dashboard',Safety.Dashboard,Safety.setupDashboard], live:['Live monitor',Safety.Live,Safety.setupLive], meetings:['Meetings',Safety.Meetings,Safety.setupMeetings], integrations:['Integrations',Mod.Integrations,Mod.setupIntegrations], intelligence:['Intelligence',Mod.Intelligence,Mod.setupIntelligence], signal:['Signal',Mod.Signal,Mod.setupSignal], watermarking:['Watermarking',Mod.Watermarking,Mod.setupWatermarking], 'chrome-extension':['Chrome extension',Mod.ChromeExtension,Mod.setupChromeExtension], evaluation:['Evaluation',Safety.Evaluation,Safety.setupEvaluation], analyze: ['New analysis', Analyze, setupAnalyze], incidents: ['Call reports', Incidents, setupIncidents], settings: ['Settings', Settings, setupSettings] };
+  const OWN = { history:['History',Hist.View,Hist.setup], noise:['Noise reduction',NP.View,NP.setup], privacy:['Privacy scan',Priv.View,Priv.setup], team:['Team',Acct.Team,Acct.setupTeam], profile:['Account',Acct.Account,Acct.setupAccount], audit:['Audit log',Acct.Audit,Acct.setupAudit], 'call-safety':['Call safety dashboard',Safety.Dashboard,Safety.setupDashboard], live:['Live monitor',Safety.Live,Safety.setupLive], meetings:['Meetings',Safety.Meetings,Safety.setupMeetings], integrations:['Integrations',Mod.Integrations,Mod.setupIntegrations], intelligence:['Intelligence',Mod.Intelligence,Mod.setupIntelligence], signal:['Signal',Mod.Signal,Mod.setupSignal], watermarking:['Watermarking',Mod.Watermarking,Mod.setupWatermarking], 'chrome-extension':['Chrome extension',Mod.ChromeExtension,Mod.setupChromeExtension], evaluation:['Evaluation',Safety.Evaluation,Safety.setupEvaluation], analyze: ['New analysis', Analyze, setupAnalyze], incidents: ['Call reports', Incidents, setupIncidents], settings: ['Settings', Settings, setupSettings] };
   function tabFor(route) {
     if (route === 'live') return 'live';
     if (['incidents','evaluation'].includes(route)) return 'reports';
@@ -578,7 +584,7 @@
   };
   const navIcon = label => {
     const l = label.toLowerCase();
-    const k = /noise/.test(l) ? 'denoise' : /call safety|^dashboard|overview/.test(l) ? (l.includes('call safety') ? 'shield' : 'grid') : /analy|upload/.test(l) ? 'upload' : /live|speech|meeting|voice|tts|text-to/.test(l) ? 'mic' : /report|incident|flagged|history/.test(l) ? 'file' : /evaluat|intellig/.test(l) ? 'flask' : /setting/.test(l) ? 'gear' : /key/.test(l) ? 'key' : /team|users|voices/.test(l) ? 'users' : /integrat|chrome|agent/.test(l) ? 'puzzle' : /investig/.test(l) ? 'search' : /watermark|library/.test(l) ? 'layers' : /project|enhance/.test(l) ? 'video' : /signal/.test(l) ? 'wave' : 'grid';
+    const k = /noise/.test(l) ? 'denoise' : /privacy|audit/.test(l) ? 'shield' : /call safety|^dashboard|overview/.test(l) ? (l.includes('call safety') ? 'shield' : 'grid') : /analy|upload/.test(l) ? 'upload' : /live|speech|meeting|voice|tts|text-to/.test(l) ? 'mic' : /report|incident|flagged|history/.test(l) ? 'file' : /evaluat|intellig/.test(l) ? 'flask' : /setting/.test(l) ? 'gear' : /key/.test(l) ? 'key' : /team|users|voices/.test(l) ? 'users' : /integrat|chrome|agent/.test(l) ? 'puzzle' : /investig/.test(l) ? 'search' : /watermark|library/.test(l) ? 'layers' : /project|enhance/.test(l) ? 'video' : /signal/.test(l) ? 'wave' : 'grid';
     return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${NAV_SVG[k]}</svg>`;
   };
   function render() {
@@ -593,6 +599,7 @@
     const view = $('#view');
     let entry;
     if (route === 'incident') entry = [() => Incident(param), () => setupIncident(param)];
+    else if (route === 'invite') entry = [Acct.Invite, () => Acct.setupInvite(param)];
     else if (route === 'meeting') entry = [() => window.VoxaMeetings.report(param), () => window.VoxaMeetings.setupReport(param)];
     else if (OWN[route]) entry = OWN[route].slice(1);
     else if (C.views[route]) entry = C.views[route];
@@ -602,7 +609,7 @@
     $('#tabs').innerHTML = C.TABS.map(t => `<a class="tab ${t.id === tab ? 'active' : ''}" href="${t.home}">${t.label}</a>`).join('');
     const active = route === 'incident' ? '#/incidents' : route === 'meeting' ? '#/meetings' : '#/' + route + (route === 'incidents' && param ? '/' + param : '');
     $('#side-body').innerHTML = (side.cta ? `<button class="cta" id="cta">${side.cta}</button>` : '') +
-      side.groups.map(([g, items]) => `<div class="group"><h6><span>${g}</span><span>⌄</span></h6>${items.map(([l, i, h]) => `<a class="nav ${h === active ? 'active' : ''}" href="${h}"><i>${navIcon(l)}</i>${l}</a>`).join('')}</div>`).join('');
+      side.groups.map(([g, items]) => `<div class="group"><h6><span>${g}</span><span>⌄</span></h6>${items.filter(([, , h]) => h !== '#/audit' || window.VoxaMe?.user?.isSuperAdmin).map(([l, i, h]) => `<a class="nav ${h === active ? 'active' : ''}" href="${h}"><i>${navIcon(l)}</i>${l}</a>`).join('')}</div>`).join('');
     $('#cta')?.addEventListener('click', () => (location.hash = side.ctaHref || '#/analyze'));
     view.classList.toggle('pf', ['reports','team','api-keys','profile'].includes(route));
     view.innerHTML = entry[0]({ first: session.name.split(' ')[0], session });
@@ -616,4 +623,5 @@
   document.addEventListener('click', e => { const t = e.target.closest('[data-toast]'); if (t) toast(t.dataset.toast); });
   addEventListener('hashchange', render);
   render();
+  Sync.start().then(() => { const r = (location.hash || '').split('/')[1] || ''; if (window.VoxaMe?.user?.isSuperAdmin || ['', 'dashboard', 'call-safety', 'history', 'incidents', 'reports'].includes(r)) render(); }).catch(() => {});
 })();
