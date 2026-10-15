@@ -1,10 +1,22 @@
 // Configuration + startup validation (PRD 13.1, 14 "production launch gate").
 // Development stays usable with safe defaults; production refuses insecure settings instead of guessing.
+import {networkInterfaces} from 'node:os';
 import {parseKeyring} from './crypto.mjs';
 
 const pick = (env, ...names) => { for (const n of names) { const v = env[n]; if (v !== undefined && String(v).trim() !== '') return String(v).trim(); } return undefined; };
 const int = (v, d) => (v === undefined || !/^\d+$/.test(v) ? d : Number(v));
 const list = v => (v ? v.split(',').map(s => s.trim()).filter(Boolean) : []);
+
+// Private (RFC 1918) IPv4 addresses of this machine: the only extra hosts LAN mode will answer to.
+export function privateIPv4(nets = networkInterfaces()) {
+  const out = [];
+  for (const list of Object.values(nets)) for (const n of list || []) {
+    if (n.family !== 'IPv4' && n.family !== 4) continue;
+    if (n.internal) continue;
+    if (/^10\./.test(n.address) || /^192\.168\./.test(n.address) || /^172\.(1[6-9]|2\d|3[01])\./.test(n.address)) out.push(n.address);
+  }
+  return [...new Set(out)];
+}
 
 // Clerk publishable keys are pk_(test|live)_<base64(frontendApi + "$")>; the frontend API host is public by design.
 export function clerkFrontendApi(pk) {
@@ -40,12 +52,19 @@ export function loadConfig(env = process.env) {
   }
 
   // ---- hosts and origins
+  // LAN mode: listen on the network and answer to this machine's private addresses (development/office use only).
+  const lan = /^(1|true|on|yes)$/i.test(pick(env, 'VOXA_LAN') || '');
+  if (lan && prod) errors.push('VOXA_LAN is for sharing on a local network during development. In production set ALLOWED_HOSTS and serve behind TLS.');
+  const lanIps = lan ? (env.__testLanIps || privateIPv4()) : [];
+  if (lan && !lanIps.length) warnings.push('VOXA_LAN=1 but this machine has no private IPv4 address; only localhost will work.');
+  const bindHost = pick(env, 'BIND_HOST') || (lan ? '0.0.0.0' : '127.0.0.1');
   const allowedHosts = list(pick(env, 'ALLOWED_HOSTS')).map(h => h.toLowerCase());
-  const hosts = allowedHosts.length ? allowedHosts : ['localhost', '127.0.0.1'];
+  const hosts = [...new Set([...(allowedHosts.length ? allowedHosts : ['localhost', '127.0.0.1']), ...lanIps])];
+  if (lan) warnings.push(`LAN mode: reachable from your local network at ${lanIps.map(ip => `http://${ip}:${port}`).join(', ') || '(no address)'}. Plain HTTP: the microphone does not work for other devices (browsers allow it only on HTTPS or localhost).`);
   if (prod && !allowedHosts.length) errors.push('Production needs ALLOWED_HOSTS (the public host name of this server).');
   if (hosts.includes('*')) errors.push('ALLOWED_HOSTS must not contain "*".');
   const allowedOrigins = list(pick(env, 'ALLOWED_ORIGINS'));
-  const origins = allowedOrigins.length ? allowedOrigins : [`http://localhost:${port}`, `http://127.0.0.1:${port}`];
+  const origins = [...new Set([...(allowedOrigins.length ? allowedOrigins : [`http://localhost:${port}`, `http://127.0.0.1:${port}`]), ...lanIps.map(ip => `http://${ip}:${port}`)])];
   if (origins.some(o => o === '*' || o.includes('*'))) errors.push('ALLOWED_ORIGINS must not contain wildcards.');
   if (prod && !allowedOrigins.length) errors.push('Production needs ALLOWED_ORIGINS (https://your.domain).');
   if (prod && origins.some(o => !o.startsWith('https://'))) errors.push('Production origins must use https:// (TLS at the edge).');
@@ -91,7 +110,7 @@ export function loadConfig(env = process.env) {
   if (!freeMode) warnings.push('FREE_MODE=off: configured providers may be billed.');
 
   return {
-    nodeEnv, prod, port, errors, warnings,
+    nodeEnv, prod, port, bindHost, lan, lanIps, errors, warnings,
     auth: {mode: authMode, clerkSecret, clerkPublishable, clerkFrontendApi: clerkFrontendApi(clerkPublishable), requireProviderConsent: authMode === 'clerk'},
     hosts, origins, db, ring: ring && !ring.error ? ring : null,
     retention: {reportDays, transcriptMode, transcriptDays},

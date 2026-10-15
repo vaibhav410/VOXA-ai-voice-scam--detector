@@ -7,7 +7,8 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 process.env.TEMP = process.env.TMP = process.env.TMPDIR = mkdtempSync(path.join(tmpdir(), 'voxa-test-'));
 import {createServer} from '../server.mjs';
-import {loadConfig} from '../server/config.mjs';
+import * as configModule from '../server/config.mjs';
+const {loadConfig} = configModule;
 import {createAuth} from '../server/auth.mjs';
 import {openDb, migrate, migrationStatus} from '../server/db.mjs';
 import {encrypt, decrypt, parseKeyring, newKey, DecryptionFailed, EncryptionUnavailable} from '../server/crypto.mjs';
@@ -328,4 +329,15 @@ test('production refuses insecure configuration; development stays usable', () =
   assert.ok(prodTestKeys.errors.some(e => /no-verify is not allowed/.test(e)));
   const dev = loadConfig({});
   assert.deepEqual(dev.errors, []); assert.equal(dev.auth.mode, 'demo');
+});
+
+test('LAN mode answers only to private addresses and is refused in production', () => {
+  const nets = {wifi: [{family: 'IPv4', address: '10.131.167.225', internal: false}, {family: 'IPv4', address: '8.8.8.8', internal: false}, {family: 'IPv6', address: 'fe80::1', internal: false}], lo: [{family: 'IPv4', address: '127.0.0.1', internal: true}]};
+  const {privateIPv4} = configModule;
+  assert.deepEqual(privateIPv4(nets), ['10.131.167.225'], 'public and loopback addresses are never added');
+  const cfg = loadConfig({VOXA_LAN: '1', PORT: '5175', __testLanIps: ['192.168.1.20']});
+  assert.equal(cfg.bindHost, '0.0.0.0'); assert.ok(cfg.hosts.includes('192.168.1.20')); assert.ok(cfg.origins.includes('http://192.168.1.20:5175'));
+  assert.ok(!cfg.hosts.includes('*'));
+  assert.ok(loadConfig({NODE_ENV: 'production', VOXA_LAN: '1'}).errors.some(e => /VOXA_LAN/.test(e)));
+  assert.equal(loadConfig({}).bindHost, '127.0.0.1', 'default stays local-only');
 });

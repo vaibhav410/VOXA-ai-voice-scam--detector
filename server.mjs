@@ -14,7 +14,7 @@ export const audoEnabled = (env = process.env) => /^(1|true|on|yes)$/i.test(Stri
 import './js/meeting-links.js';
 const MeetingLinks = globalThis.VoxaMeetingLinks;
 import {attachLive} from './server/live.mjs';
-import {loadConfig, publicConfig} from './server/config.mjs';
+import {loadConfig, publicConfig, privateIPv4} from './server/config.mjs';
 import {createApi} from './server/api.mjs';
 import {createAuth} from './server/auth.mjs';
 import {openDb, migrate} from './server/db.mjs';
@@ -238,8 +238,9 @@ if(process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.
  const keys=loadKeys();
  const portArg=process.argv.find(arg=>/^--port=\d+$/.test(arg));
  const cfg=loadConfig(portArg ? {...process.env,PORT:portArg.slice(7)} : process.env), log=safeLogger();
- const lan=process.argv.includes('--lan');
- const lanAddresses=lan ? Object.values(networkInterfaces()).flat().filter(ip=>ip.family==='IPv4'&&!ip.internal&&!ip.address.startsWith('169.254.')).map(ip=>ip.address) : [];
+ // --lan (or VOXA_LAN=1): share on the local network. Only this machine's private (RFC 1918) addresses are trusted.
+ const lan=process.argv.includes('--lan') || cfg.lan;
+ const lanAddresses=lan ? (cfg.lanIps.length ? cfg.lanIps : privateIPv4()) : [];
  if(lan && cfg.prod) { console.error('Use the production host and TLS configuration for public hosting; --lan is for local network previews.'); process.exit(1); }
  if(lan) {
   cfg.hosts=[...new Set([...cfg.hosts,...lanAddresses])];
@@ -258,7 +259,7 @@ if(process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.
  attachLive(server,keys,undefined,{hostOk:server.voxa.hostOk,authorize:async req=>{const id=await auth.identifyWs(req);return Boolean(id && !id.invalid);}});
  const housekeeping=async()=>{ try { if (db && await server.voxa.api.ready()) { const r=await purgeExpired(db); if (r.analyses||r.transcripts||r.invitations||r.auditEvents) log('retention_purge',{count:r.analyses+r.transcripts+r.invitations+r.auditEvents}); } } catch {} try { await cleanupStaleTemp(); } catch {} };
  housekeeping(); setInterval(housekeeping,3600000).unref();
- server.listen(cfg.port,lan?'0.0.0.0':'127.0.0.1',()=>{
+ server.listen(cfg.port,lan?'0.0.0.0':cfg.bindHost,()=>{
   console.log(`VOXA running at http://127.0.0.1:${cfg.port} (auth: ${cfg.auth.mode}, database: ${db ? db.kind : 'none'})`);
   for(const ip of lanAddresses)console.log(`Same-network access: http://${ip}:${cfg.port}`);
  });
