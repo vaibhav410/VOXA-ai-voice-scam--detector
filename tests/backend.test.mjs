@@ -341,3 +341,14 @@ test('LAN mode answers only to private addresses and is refused in production', 
   assert.ok(loadConfig({NODE_ENV: 'production', VOXA_LAN: '1'}).errors.some(e => /VOXA_LAN/.test(e)));
   assert.equal(loadConfig({}).bindHost, '127.0.0.1', 'default stays local-only');
 });
+
+test('behind an HTTPS tunnel the analysis routes accept the configured https origin and still refuse others', {skip: (await ffmpegPath()) ? false : 'FFmpeg missing'}, async t => {
+  const http = await import('node:http');
+  const cfg = loadConfig({AUTH_MODE: 'demo', ALLOWED_HOSTS: 'voxa-tunnel.example,localhost,127.0.0.1', ALLOWED_ORIGINS: 'https://voxa-tunnel.example'});
+  const s = createServer({}, fetch, {cfg}); await new Promise(r => s.listen(0, '127.0.0.1', r)); t.after(() => s.close());
+  const body = toWav(whiteNoise(16000 * 2, 0.05));
+  const send = origin => new Promise((res, rej) => { const q = http.request({host: '127.0.0.1', port: s.address().port, path: '/api/noise', method: 'POST', headers: {Host: 'voxa-tunnel.example', Origin: origin, 'X-Voxa-Request': '1', 'Content-Type': 'audio/wav', 'Content-Length': body.length}}, r => { r.resume(); r.on('end', () => res(r.statusCode)); }); q.on('error', rej); q.end(body); });
+  assert.equal(await send('https://voxa-tunnel.example'), 200, 'browser behind Cloudflare sends https://host');
+  assert.equal(await send('https://evil.example'), 403);
+  assert.equal(await send('http://voxa-tunnel.example'), 200, 'plain same-origin still works');
+});

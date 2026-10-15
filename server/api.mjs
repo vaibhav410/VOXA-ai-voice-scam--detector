@@ -23,6 +23,8 @@ const ROUTES = [
   ['GET', /^\/api\/teams$/, 'myTeams'],
   ['POST', /^\/api\/teams$/, 'createTeam'],
   ['GET', /^\/api\/teams\/([^/]+)\/members$/, 'teamMembers'],
+  ['GET', /^\/api\/teams\/([^/]+)\/stats$/, 'teamStats'],
+  ['PATCH', /^\/api\/teams\/([^/]+)$/, 'renameTeam'],
   ['POST', /^\/api\/teams\/([^/]+)\/invitations$/, 'invite'],
   ['PATCH', /^\/api\/teams\/([^/]+)\/members\/([^/]+)\/role$/, 'setRole'],
   ['DELETE', /^\/api\/teams\/([^/]+)\/members\/([^/]+)$/, 'removeMember'],
@@ -139,6 +141,22 @@ export function createApi({cfg, db, auth, logger = safeLogger()}) {
       const t = await repo.getTeam(db, m[1]);
       if (!t || !canViewTeam(u, t.id)) { if (t) await deny(h, u, 'team.view_denied', 'team', t.id); return notFound(h); }
       h.json(200, {team: {id: t.id, name: t.name}, yourRole: teamRole(u, t.id), members: (await repo.teamMembers(db, t.id)).map(x => ({userId: x.user_id, displayName: x.display_name, email: x.email, role: x.role, joinedAt: x.joined_at}))});
+    },
+    async teamStats(req, h, m, id, u) {
+      const t = await repo.getTeam(db, m[1]);
+      if (!t || !canViewTeam(u, t.id)) { if (t) await deny(h, u, 'team.view_denied', 'team', t.id); return notFound(h); }
+      h.json(200, {...(await repo.teamStats(db, t.id)), yourRole: teamRole(u, t.id)});
+    },
+    async renameTeam(req, h, m, id, u) {
+      const body = await readJson(req, h); if (body === undefined) return;
+      const t = await repo.getTeam(db, m[1]);
+      if (!t || !canViewTeam(u, t.id)) { if (t) await deny(h, u, 'team.rename_denied', 'team', t.id); return notFound(h); }
+      if (!canManageTeam(u, t.id)) { await deny(h, u, 'team.rename_denied', 'team', t.id); return h.fail(403, 'FORBIDDEN', 'Only a team admin can rename the team.'); }
+      const name = typeof body.name === 'string' ? body.name.trim() : '';
+      if (name.length < 1 || name.length > 80) return h.fail(400, 'INVALID_NAME', 'Team name must be 1-80 characters.');
+      const r = await repo.renameTeam(db, t.id, name);
+      await audit({actorUserId: u.id, teamId: t.id, action: 'team.renamed', targetType: 'team', targetId: t.id, correlationId: h.cid});
+      h.json(200, r);
     },
     async invite(req, h, m, id, u) {
       const body = await readJson(req, h); if (body === undefined) return;

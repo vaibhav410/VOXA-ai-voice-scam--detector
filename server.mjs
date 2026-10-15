@@ -75,6 +75,9 @@ export function createServer(keys={}, fetcher=fetch, opts={}) {
   try {
    if (!hostOk(req.headers.host)) return json(403,{error:'Local access only.'});
    const url=new URL(req.url,'http://'+req.headers.host);
+   // Same-origin check that also works behind HTTPS (Cloudflare tunnel): the browser sends https://host while
+   // this server sees plain http. Configured origins (ALLOWED_ORIGINS / the tunnel launcher) are accepted.
+   const originOk=o=>Boolean(o) && (o===url.origin || cfg.origins.includes(o));
    if (url.pathname.startsWith('/api/')) {
     const h={json,fail,cid};
     if (await api.handle(req,res,url,h)) return;
@@ -92,7 +95,7 @@ export function createServer(keys={}, fetcher=fetch, opts={}) {
     return json(200,{freeMode:freeModeOn(),providers:Object.fromEntries(Object.entries(details).map(([k,d])=>[k,d.configured&&d.allowed])),details,tools:{ffmpeg:Boolean(ff),extension:Boolean(extensionId()),audo:audoEnabled(),audoDisclosure:audoEnabled()?AUDO_DISCLOSURE:null},auth:publicConfig(cfg),database:await api.health().then(d=>({configured:d.configured,reachable:d.reachable??null,schemaCurrent:d.schemaCurrent??null})).catch(()=>({configured:true,reachable:false})),limits:{voiceMB:20,imageMB:10,videoMB:32},authProvider:{voice:pickAuth('voice','auto',keys),image:pickAuth('image','auto',keys),video:pickAuth('video','auto',keys)}});
    }
    if(url.pathname === '/api/meeting-link/validate' && req.method === 'POST') {
-    if(req.headers.origin !== url.origin || req.headers['x-voxa-request'] !== '1') return fail(403,'FORBIDDEN','Open VOXA on this server to validate links.');
+    if(!originOk(req.headers.origin) || req.headers['x-voxa-request'] !== '1') return fail(403,'FORBIDDEN','Open VOXA on this server to validate links.');
     const chunks=[];let size=0;
     for await(const chunk of req){size+=chunk.length;if(size>8192)return fail(413,'TOO_LARGE','That request is too large.');chunks.push(chunk);}
     let body;try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{return fail(400,'INVALID_JSON','Send JSON with a platform and a url.');}
@@ -102,7 +105,7 @@ export function createServer(keys={}, fetcher=fetch, opts={}) {
     return v.ok ? json(200,{ok:true,platform:v.platform,url:v.url,display:v.display}) : json(422,{ok:false,error:v.error,code:'INVALID_LINK'});
    }
    if(url.pathname === '/api/intelligence' && req.method === 'POST') {
-    if(req.headers.origin !== url.origin || req.headers['x-voxa-request'] !== '1') return json(403,{error:'Open VOXA on this server to analyze.'});
+    if(!originOk(req.headers.origin) || req.headers['x-voxa-request'] !== '1') return json(403,{error:'Open VOXA on this server to analyze.'});
     if(busy) return json(429,{error:'Another analysis is running. Try again when it finishes.'});
     busy=true;
     try {
@@ -115,7 +118,7 @@ export function createServer(keys={}, fetcher=fetch, opts={}) {
    }
    // Noise analysis: separate from authenticity/scam analysis. Local only (FFmpeg + JS DSP), no provider keys, no network.
    if(url.pathname === '/api/noise' && req.method === 'POST') {
-    if(!(req.headers.origin === url.origin || (extOrigin() && req.headers.origin === extOrigin())) || req.headers['x-voxa-request'] !== '1') return fail(403,'FORBIDDEN','Open VOXA on this server to analyze.');
+    if(!(originOk(req.headers.origin) || (extOrigin() && req.headers.origin === extOrigin())) || req.headers['x-voxa-request'] !== '1') return fail(403,'FORBIDDEN','Open VOXA on this server to analyze.');
     if(busy) return fail(429,'BUSY','Another analysis is running. Try again when it finishes.');
     const declared=(req.headers['content-type'] || '').split(';')[0];
     if(!['audio/wav','audio/x-wav','audio/mpeg','audio/flac','audio/ogg','audio/mp4','audio/webm'].includes(declared)) return fail(415,'UNSUPPORTED_TYPE','Noise analysis accepts audio files only (wav, mp3, flac, ogg, m4a, webm).');
@@ -151,7 +154,7 @@ export function createServer(keys={}, fetcher=fetch, opts={}) {
     } finally {busy=false;}
    }
    if(['/api/analyze','/api/transcribe'].includes(url.pathname) && req.method === 'POST') {
-    if(!(req.headers.origin === url.origin || (extOrigin() && req.headers.origin === extOrigin())) || req.headers['x-voxa-request'] !== '1') return fail(403,'FORBIDDEN','Open VOXA on this server to analyze.');
+    if(!(originOk(req.headers.origin) || (extOrigin() && req.headers.origin === extOrigin())) || req.headers['x-voxa-request'] !== '1') return fail(403,'FORBIDDEN','Open VOXA on this server to analyze.');
     if(busy) return fail(429,'BUSY','Another analysis is running. Try again when it finishes.');
     const transcriptionOnly=url.pathname === '/api/transcribe';
     const modality=url.searchParams.get('modality'),provider=url.searchParams.get('provider');

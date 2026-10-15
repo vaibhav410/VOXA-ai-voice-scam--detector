@@ -201,3 +201,24 @@ export async function grantSuperAdmin(db, email) {
 }
 export const listAudit = (db, {limit = 200, before = null} = {}) => db.query(`select id, actor_user_id, team_id, action, target_type, target_id, outcome, severity, classification, correlation_id, metadata_json, created_at
   from voxa.audit_events where ($1::timestamptz is null or created_at < $1) order by created_at desc limit $2`, [before, Math.min(Math.max(1, limit), 500)]);
+
+// ---------------------------------------------------------------- team dashboard
+export async function renameTeam(db, teamId, name) {
+  const [t] = await db.query('update voxa.teams set name = $2 where id = $1 returning id, name', [teamId, name]);
+  return t || null;
+}
+// Aggregate numbers only (no report content): what has been shared to the team, and membership.
+export async function teamStats(db, teamId) {
+  const [t] = await db.query('select id, name, plan_code, created_at from voxa.teams where id = $1', [teamId]);
+  if (!t) return null;
+  const types = await db.query('select report_type, count(*)::int as n from voxa.analyses where team_id = $1 and expires_at > now() group by report_type', [teamId]);
+  const [a] = await db.query(`select count(*)::int as total,
+      coalesce(sum(case when jsonb_typeof(summary_json->'media'->'duration') = 'number' then (summary_json->'media'->>'duration')::double precision end), 0) as seconds,
+      count(*) filter (where summary_json->>'priority' = 'high')::int as high
+    from voxa.analyses where team_id = $1 and expires_at > now()`, [teamId]);
+  const [m] = await db.query("select count(*)::int as members, count(*) filter (where role = 'admin')::int as admins from voxa.team_memberships where team_id = $1", [teamId]);
+  const [i] = await db.query('select count(*)::int as n from voxa.invitations where team_id = $1 and accepted_at is null and expires_at > now()', [teamId]);
+  return {team: {id: t.id, name: t.name, plan: t.plan_code, createdAt: t.created_at},
+    reports: {total: a.total, highPriority: a.high, byType: Object.fromEntries(types.map(x => [x.report_type, x.n]))},
+    audioSeconds: Math.round(Number(a.seconds) || 0), members: m.members, admins: m.admins, pendingInvitations: i.n};
+}

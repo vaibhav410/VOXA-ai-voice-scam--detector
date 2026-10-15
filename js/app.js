@@ -1,6 +1,6 @@
 (() => {
   // A bare "Failed to fetch" is useless; say what is actually wrong.
-  const netError = () => new Error(location.origin !== 'http://127.0.0.1:5174' && location.origin !== 'http://localhost:5174' ? 'This page is not served by the VOXA server. Open http://127.0.0.1:5174 instead.' : 'Cannot reach the VOXA server. Run start-voxa.cmd (or npm start) in the VOXA folder, then reload.');
+  const netError = () => new Error(navigator.onLine === false ? 'You are offline. Check your connection and try again.' : 'Cannot reach the VOXA server at ' + location.origin + '. It may be restarting or the link may have changed. Try again in a moment.');
   const nativeFetch = window.fetch.bind(window);
   window.fetch = async (...args) => {
     try { return await nativeFetch(...args); }

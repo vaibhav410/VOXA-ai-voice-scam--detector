@@ -8,7 +8,8 @@ const P = 'realitydefender';
 const BASE = 'https://api.prd.realitydefender.xyz';
 export const RD_EXT = {'audio/wav': 'wav', 'audio/mpeg': 'mp3', 'audio/flac': 'flac', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'video/mp4': 'mp4', 'video/quicktime': 'mov'};
 export const RD_LIMIT_MB = {voice: 20, image: 50, video: 250};
-export const rdPoll = {intervalMs: 4000, maxMs: 100000};
+// 75 s cap: Cloudflare closes tunnel requests at 100 s, so the server must answer (honestly: still processing) before that.
+export const rdPoll = {intervalMs: 4000, maxMs: 75000};
 const IN_PROGRESS = new Set(['ANALYZING', 'DOWNLOADING']);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 

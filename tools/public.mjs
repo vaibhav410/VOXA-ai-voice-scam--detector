@@ -29,11 +29,23 @@ const onData = d => {
   if (!m || server) return;
   clearTimeout(timer);
   const host = m[1], url = 'https://' + host;
-  server = spawn(process.execPath, ['server.mjs', `--port=${PORT}`], {
-    cwd: ROOT, stdio: 'inherit',
-    env: {...process.env, PORT: String(PORT), ALLOWED_HOSTS: `${host},localhost,127.0.0.1`, ALLOWED_ORIGINS: `${url},http://127.0.0.1:${PORT},http://localhost:${PORT}`}
-  });
-  server.on('exit', c => { if (!done) { console.error('VOXA stopped (exit ' + c + ').'); stop(1); } });
+  // Supervise the app: if it exits (crash, or stopped to load new code) start it again on the same tunnel,
+  // so the public address stays the same. Gives up after 5 restarts within a minute.
+  let restarts = [];
+  const launch = () => {
+    server = spawn(process.execPath, ['server.mjs', `--port=${PORT}`], {
+      cwd: ROOT, stdio: 'inherit',
+      env: {...process.env, PORT: String(PORT), ALLOWED_HOSTS: `${host},localhost,127.0.0.1`, ALLOWED_ORIGINS: `${url},http://127.0.0.1:${PORT},http://localhost:${PORT}`}
+    });
+    server.on('exit', c => {
+      if (done) return;
+      restarts = restarts.filter(t => Date.now() - t < 60000).concat(Date.now());
+      if (restarts.length > 5) { console.error('VOXA keeps stopping (exit ' + c + '). Giving up.'); return stop(1); }
+      console.log('VOXA stopped (exit ' + c + '); starting it again on the same address…');
+      setTimeout(launch, 1000);
+    });
+  };
+  launch();
   setTimeout(() => console.log(`\n  VOXA is public at:  ${url}\n  (this address changes each time you start the tunnel)\n`), 3000);
 };
 tunnel.stdout.on('data', onData); tunnel.stderr.on('data', onData);
