@@ -1,0 +1,13 @@
+crawl/
+_old/
+tools/crawler/node_modules/
+.env*
+
+node_modules/
+evaluation/private/
+
+!.env.example
+__pycache__/
+*.pyc
+*.log
+.firecrawl/

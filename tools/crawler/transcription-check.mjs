@@ -1,0 +1,12 @@
+import {chromium} from 'playwright';
+const b=await chromium.launch({args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream']});
+const ctx=await b.newContext({permissions:['microphone']});const p=await ctx.newPage();const errors=[];p.on('pageerror',e=>errors.push(e.message));
+await p.goto('http://127.0.0.1:5174/login.html?demo=1');await p.click('#demo');await p.waitForURL('**/app.html');await p.goto('http://127.0.0.1:5174/app.html#/stt');
+if(await p.locator('option[value="aurigin"]').count())throw Error('Removed provider visible');
+const providers=[];await p.route('**/api/transcribe?*',async r=>{providers.push(new URL(r.request().url()).searchParams.get('textProvider'));if(!r.request().postDataBuffer()?.length)throw Error('No audio');await r.fulfill({json:{extraction:{status:'ok',provider:providers.at(-1),text:'Review this recorded call before you share any banking credentials.'}}});});
+await p.check('#a-consent');await p.click('#a-rec');await p.waitForFunction(()=>document.querySelector('#a-rec').textContent.includes('Stop'));await p.waitForTimeout(3300);await p.click('#a-rec');await p.waitForFunction(()=>!document.querySelector('#a-play').hidden);
+await p.click('#a-transcribe');await p.waitForFunction(()=>document.querySelector('#a-text').value.includes('Review this'));
+await p.selectOption('#a-text-provider','gemini');await p.click('#a-transcribe');await p.waitForFunction(()=>document.querySelector('#a-transcript-state').textContent.includes('Transcribed with gemini'));
+const wav=Buffer.alloc(44+32000*4);wav.write('RIFF');wav.writeUInt32LE(wav.length-8,4);wav.write('WAVEfmt ',8);wav.writeUInt32LE(16,16);wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);wav.writeUInt32LE(16000,24);wav.writeUInt32LE(32000,28);wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);wav.write('data',36);wav.writeUInt32LE(wav.length-44,40);
+await p.setInputFiles('#a-file',{name:'sample.wav',mimeType:'audio/wav',buffer:wav});await p.waitForFunction(()=>document.querySelector('#a-info').textContent.includes('sample.wav'));await p.selectOption('#a-text-provider','deepgram');await p.click('#a-transcribe');await p.waitForFunction(()=>document.querySelector('#a-transcript-state').textContent.includes('Transcribed with deepgram'));
+console.log(JSON.stringify({microphone:'passed',upload:'passed',providers,errors}));await b.close();if(errors.length)process.exitCode=1;

@@ -1,0 +1,1 @@
+{"name":"voxa-crawler","private":true,"type":"module","version":"1.0.0","dependencies":{"crawlee":"^3.18.2","playwright":"^1.64.0"}}

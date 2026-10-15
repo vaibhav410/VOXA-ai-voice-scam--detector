@@ -1,0 +1,7 @@
+import {chromium} from 'playwright';
+const b=await chromium.launch();try{const p=await b.newPage();const failures=[],external=[];p.on('request',r=>{if(!r.url().startsWith('http://127.0.0.1:5174')&&!r.url().startsWith('data:')&&!r.url().startsWith('blob:'))external.push(r.url());});
+for(const width of [320,360,390,768,820,1024,1440,1920]){await p.setViewportSize({width,height:900});await p.goto('http://127.0.0.1:5174/');if(await p.evaluate(()=>document.documentElement.scrollWidth>innerWidth))failures.push({width,page:'landing'});}
+await p.goto('http://127.0.0.1:5174/login.html');await p.click('#demo');await p.waitForURL('**/app.html');
+for(const width of [320,390,768,820,1024,1440]){await p.setViewportSize({width,height:900});for(const route of ['dashboard','analyze','live','incidents','evaluation','settings','profile']){await p.goto('http://127.0.0.1:5174/app.html#/'+route);await p.locator('#view h1').waitFor();if(await p.evaluate(()=>document.documentElement.scrollWidth>innerWidth))failures.push({width,page:route});}}
+await p.goto('http://127.0.0.1:5174/app.html#/analyze');await p.click('#a-demo-load');await p.waitForFunction(()=>!document.querySelector('#a-play').hidden);if(await p.evaluate(()=>document.documentElement.scrollWidth>innerWidth))failures.push({page:'audio preview'});
+console.log(JSON.stringify({responsiveChecks:51,externalBrowserRequests:[...new Set(external)],failures}));if(failures.length||external.length)process.exitCode=1;}finally{await b.close();}

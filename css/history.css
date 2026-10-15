@@ -1,0 +1,28 @@
+.hs{max-width:980px}
+.hs-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:18px 0 6px}
+.hs-bar input[type=search]{flex:1;min-width:200px;height:34px;border:1px solid var(--mt-line);border-radius:7px;padding:0 12px;font:13px var(--sans);background:#fff}
+.hs-bar select{height:34px;border:1px solid var(--mt-line);border-radius:7px;padding:0 10px;font:13px var(--sans);background:#fff}
+.hs .modtabs.an-tabs{display:inline-flex;gap:0;margin:0;border:1px solid var(--mt-line);border-radius:8px;overflow:hidden;background:#fff}
+.hs .modtabs.an-tabs button{border:0;border-right:1px solid var(--mt-line);border-radius:0;background:#fff;color:#374151;padding:7px 14px;font:500 13px var(--sans);cursor:pointer}
+.hs .modtabs.an-tabs button:last-child{border-right:0}
+.hs .modtabs.an-tabs button.on{background:var(--mt-blue);color:#fff}
+.hs-n{opacity:.7;font-weight:400;margin-left:2px}
+.hs-count{color:var(--mt-mut);font-size:12px;margin:10px 0 0;min-height:16px}
+.hs-day{font:600 12px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--mt-mut);margin:22px 0 10px}
+.hs-card{display:grid;grid-template-columns:220px 1fr;gap:16px;background:#fff;border:1px solid var(--mt-line);border-radius:10px;padding:12px;margin-bottom:10px}
+.hs-media{width:100%;height:132px;border-radius:7px;background:#0f1020;object-fit:contain;display:block}
+.hs-none{display:grid;place-content:center;justify-items:center;gap:4px;background:#f3f4f8;color:var(--mt-mut);font-size:30px}
+.hs-none small{font:11px var(--sans)}
+.hs-audio{display:grid;place-items:center;background:#f3f4f8;padding:8px}
+.hs-audio audio{width:100%}
+.hs-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}
+.hs-top h3{margin:0;font-size:15px;font-weight:600;word-break:break-word}
+.hs-top h3 a{color:var(--mt-ink)}
+.hs-top h3 a:hover{color:var(--mt-blue)}
+.hs-pills{display:flex;gap:6px;flex-wrap:wrap}
+.hs-meta{margin:4px 0 0;color:var(--mt-mut);font-size:12px}
+.hs-quote{margin:8px 0 0;padding:6px 10px;border-left:3px solid #c7d2fe;background:#f5f6ff;font-size:13px;color:#374151;border-radius:0 6px 6px 0}
+.hs-flags{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 0}
+.hs-flags span{font-size:11px;background:#fff1f2;color:#9f1239;border:1px solid #fecdd3;border-radius:99px;padding:2px 8px}
+.hs-actions{display:flex;gap:8px;margin-top:10px}
+@media(max-width:720px){.hs-card{grid-template-columns:1fr}.hs-media{height:180px}}

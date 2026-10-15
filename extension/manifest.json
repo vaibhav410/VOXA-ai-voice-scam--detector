@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "VOXA media check",
+  "version": "0.1.0",
+  "description": "Right-click an image, video or audio clip to check it for AI generation with your local VOXA server.",
+  "permissions": ["contextMenus", "notifications", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_popup": "popup.html", "default_title": "VOXA media check" }
+}

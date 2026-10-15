@@ -1,0 +1,18 @@
+import { chromium } from 'playwright';
+const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 1440, height: 900 } });
+const errs = []; p.on('pageerror', e => errs.push('pageerror ' + e.message)); p.on('console', m => m.type() === 'error' && errs.push('console ' + m.text()));
+const B = 'http://localhost:5173/';
+await p.goto(B); await p.screenshot({ path: '../../crawl/t-landing.png' });
+await p.goto(B + 'app.html'); console.log('guard ->', p.url());
+await p.goto(B + 'login.html?demo=1'); await p.click('button.submit'); await p.waitForURL('**/app.html**'); console.log('login ->', p.url());
+await p.screenshot({ path: '../../crawl/t-dash.png' });
+await p.selectOption('#sector', 'finance'); await p.goto(B + 'app.html#/analyze');
+await p.fill('#a-text', 'Hello sir, this is the bank manager. Your account will be blocked. Please share the OTP immediately and do not tell anyone about this call.');
+await p.click('#a-go'); await p.waitForURL('**#/incident/**'); console.log('incident ->', p.url().split('#')[1]);
+console.log((await p.innerText('#view')).slice(0, 700));
+await p.screenshot({ path: '../../crawl/t-incident.png', fullPage: true });
+await p.fill('#i-note', 'called back bank'); await p.click('#i-add'); await p.selectOption('#i-status', 'resolved');
+await p.goto(B + 'app.html#/incidents'); console.log('rows', await p.locator('tbody tr').count());
+await p.click('#user-btn'); await p.screenshot({ path: '../../crawl/t-menu.png' });
+await p.click('#logout'); await p.waitForURL('**login.html**'); console.log('logout ->', p.url(), await p.isVisible('#out'));
+console.log('ERRORS', errs); await b.close();

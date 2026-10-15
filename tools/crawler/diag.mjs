@@ -1,0 +1,11 @@
+import { chromium } from 'playwright';
+const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 1440, height: 900 } });
+p.on('pageerror',e=>console.log('PAGEERROR',e.message.slice(0,200)));
+p.on('console',m=>m.type()==='error'&&console.log('CONSOLE',m.text().slice(0,200)));
+p.on('response',r=>r.status()>=400&&console.log('HTTP',r.status(),r.url().replace(/https?:\/\/[^/]+/,'')));
+const B=process.argv[2];
+await p.goto(B+'/login.html?demo=1'); await p.waitForTimeout(500);
+await p.evaluate(()=>localStorage.setItem('voxa:session',JSON.stringify({name:'Demo User',email:'demo@voxa.app'})));
+await p.goto(B+'/app.html#/dashboard'); await p.waitForTimeout(2500);
+console.log('view chars', (await p.innerText('#view')).trim().length, '| nav items', await p.locator('.nav').count());
+await b.close();

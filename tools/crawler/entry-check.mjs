@@ -1,0 +1,1 @@
+﻿import {chromium} from 'playwright';const b=await chromium.launch();try{const p=await b.newPage();p.on('pageerror',e=>console.log('ERROR',e.message));await p.goto('http://127.0.0.1:5174/login.html');await p.click('#demo');await p.waitForTimeout(1500);console.log('URL',p.url());console.log('H1',await p.locator('h1').allTextContents());}finally{await b.close();}

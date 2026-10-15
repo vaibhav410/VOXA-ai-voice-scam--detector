@@ -1,0 +1,15 @@
+import {chromium} from 'playwright';
+const b=await chromium.launch();const p=await b.newPage({viewport:{width:1440,height:1000}});const errors=[];p.on('pageerror',e=>errors.push(e.message));
+await p.goto('http://127.0.0.1:5174/login.html?demo=1');await p.click('#demo');await p.waitForURL('**/app.html');await p.goto('http://127.0.0.1:5174/app.html#/analyze');
+const wav=Buffer.alloc(44+32000*4);wav.write('RIFF');wav.writeUInt32LE(wav.length-8,4);wav.write('WAVEfmt ',8);wav.writeUInt32LE(16,16);wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);wav.writeUInt32LE(16000,24);wav.writeUInt32LE(32000,28);wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);wav.write('data',36);wav.writeUInt32LE(wav.length-44,40);
+const transcript='This is your bank manager. Please share your OTP immediately or your account will be blocked. <script>window.bad=true</script>';
+await p.route('**/api/analyze?*',r=>r.fulfill({json:{authenticity:{status:'ok',provider:'sealedrose',code:'NOT_FLAGGED',confidence:1,message:'Not flagged'},extraction:{status:'ok',provider:'deepgram',text:transcript}}}));
+await p.setInputFiles('#a-file',{name:'bank-call.wav',mimeType:'audio/wav',buffer:wav});await p.waitForFunction(()=>document.querySelector('#a-info').textContent.includes('bank-call.wav'));await p.check('#a-consent');await p.click('#a-go');await p.waitForURL('**#/incident/**');
+if(await p.locator('.report-metrics>div').count()!==4)throw Error('Missing dashboard metrics');
+if(await p.locator('.transcript-body').innerText()!==transcript)throw Error('Transcript mismatch');
+if(await p.evaluate(()=>!!window.bad))throw Error('Unescaped transcript');
+await p.reload();await p.locator('.transcript-body').waitFor();if(await p.locator('.transcript-body').innerText()!==transcript)throw Error('Transcript not persisted');
+const download=p.waitForEvent('download');await p.click('#i-transcript');if(!(await download).suggestedFilename().endsWith('-transcript.txt'))throw Error('Missing download');
+await p.screenshot({path:'crawl/results-dashboard.png',fullPage:true});
+await p.setViewportSize({width:390,height:844});await p.waitForFunction(()=>document.querySelector('#sidebar').classList.contains('collapsed'));await p.screenshot({path:'crawl/results-dashboard-mobile.png',fullPage:true});
+const overflow=await p.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth);console.log(JSON.stringify({uploadToDashboard:'passed',fullTranscript:'passed',download:'passed',mobileOverflow:overflow,errors}));await b.close();if(errors.length || overflow)process.exitCode=1;
