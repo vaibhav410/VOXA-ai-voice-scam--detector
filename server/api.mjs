@@ -43,6 +43,17 @@ export function createApi({cfg, db, auth, logger = safeLogger()}) {
   let health = db ? null : {configured: false};
   const ready = async (force = false) => { if (!db) return false; if (force || !health?.schemaCurrent) health = await dbHealth(db); return Boolean(health.reachable && health.schemaCurrent); };
   const ipOf = req => req.socket?.remoteAddress || '';
+  // Daily provider quota (per user and in total). Counted when a provider-backed request is let through.
+  let quotaDay = '', quotaUsers = new Map(), quotaTotal = 0;
+  function takeQuota(subject) {
+    const day = new Date().toISOString().slice(0, 10);
+    if (day !== quotaDay) { quotaDay = day; quotaUsers = new Map(); quotaTotal = 0; }
+    const q = cfg.quotas || {perUser: 20, total: 200}, used = quotaUsers.get(subject) || 0;
+    if (quotaTotal >= q.total) return 'total';
+    if (used >= q.perUser) return 'user';
+    quotaUsers.set(subject, used + 1); quotaTotal++;
+    return null;
+  }
 
   async function readJson(req, h, max = cfg.limits.jsonKB * 1024) {
     if (!/^application\/json\b/i.test(req.headers['content-type'] || '')) { h.fail(415, 'JSON_REQUIRED', 'Send JSON.'); return undefined; }
@@ -281,6 +292,10 @@ export function createApi({cfg, db, auth, logger = safeLogger()}) {
       const id = await identify(req, h); if (!id) return null;
       if (!allow(`${group}:${id.subject}`, ...LIMITS[group])) { h.fail(429, 'RATE_LIMITED', 'Too many requests. Wait a minute and try again.'); return null; }
       if (providers && cfg.auth.requireProviderConsent && req.headers['x-voxa-provider-consent'] !== '1') { h.fail(428, 'CONSENT_REQUIRED', 'Confirm consent to send this media to the selected providers.'); return null; }
+      if (providers) {
+        const over = takeQuota(id.subject);
+        if (over) { await audit({action: 'provider.quota_exceeded', outcome: 'denied', severity: over === 'total' ? 'medium' : 'low', classification: 'suspicious', correlationId: h.cid, metadata: {reason: over}}); h.fail(429, 'DAILY_LIMIT', over === 'total' ? 'This VOXA server has reached its daily analysis limit. Try again tomorrow.' : 'You have reached your daily analysis limit. Try again tomorrow.'); return null; }
+      }
       if (providers && db && (await ready())) {
         try { const u = await repo.loadPrincipal(db, await repo.upsertUser(db, id)); await audit({actorUserId: u.id, action: 'provider.dispatch', targetType: 'route', targetId: url.pathname, correlationId: h.cid, metadata: {route: url.pathname, modality: url.searchParams.get('modality') || undefined}}); } catch {}
       }

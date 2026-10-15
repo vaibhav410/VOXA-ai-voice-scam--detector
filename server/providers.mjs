@@ -23,8 +23,13 @@ export async function request(url, options, fetcher, retries = 1) {
   }
 }
 const STATUS_TEXT = {401:'The API key was rejected. Check it in .env.local.',402:'Provider credits are exhausted.',403:'The API key does not have access to this feature.',413:'The provider rejected the file as too large.',415:'The provider does not support this media format.',422:'The provider could not process this media (too short, corrupted or unsupported codec).',429:'The provider rate limit was reached. Wait a minute and try again.'};
+const TLS_ERRORS = new Set(['UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'SELF_SIGNED_CERT_IN_CHAIN', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY', 'UNABLE_TO_GET_ISSUER_CERT', 'CERT_UNTRUSTED', 'ERR_TLS_CERT_ALTNAME_INVALID']);
 export function failure(provider, e, what) {
   if (e instanceof SyntaxError) return missing(provider, `${what}: the provider returned an unreadable response.`, 'INVALID_RESPONSE');
+  // A certificate the provider did not issue means something on this network (a firewall doing TLS inspection) is
+  // intercepting the connection. VOXA never disables verification, so say what is happening and what to do.
+  const tlsCode = e?.cause?.code || e?.code;
+  if (TLS_ERRORS.has(tlsCode)) return missing(provider, `${what}: this network intercepts the secure connection to the provider (a firewall is presenting its own certificate), so VOXA did not send anything. Use another network, or choose a different provider for this analysis.`, 'TLS_INTERCEPTED');
   if (!e.status) return e.name === 'TimeoutError' || e.name === 'AbortError'
     ? missing(provider, `${what} timed out. Try a shorter file or try again.`, 'TIMEOUT')
     : missing(provider, `${what} could not reach the provider. Check your internet connection.`, 'NETWORK_ERROR');

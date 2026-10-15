@@ -352,3 +352,21 @@ test('behind an HTTPS tunnel the analysis routes accept the configured https ori
   assert.equal(await send('https://evil.example'), 403);
   assert.equal(await send('http://voxa-tunnel.example'), 200, 'plain same-origin still works');
 });
+
+test('daily provider quota: per-user cap, then a server-wide cap; non-provider routes are not counted', async t => {
+  const {base} = await setup(t, {PROVIDER_DAILY_LIMIT_PER_USER: '2', PROVIDER_DAILY_LIMIT_TOTAL: '3'});
+  const wav = toWav(whiteNoise(16000 * 2, 0.05));
+  const post = token => fetch(base + '/api/analyze?modality=voice&provider=sealedrose&extract=0&textProvider=gemini', {method: 'POST', headers: {Origin: base, 'X-Voxa-Request': '1', 'Content-Type': 'audio/wav', Authorization: 'Bearer ' + token, 'X-Voxa-Provider-Consent': '1'}, body: wav}).then(r => r.status);
+  assert.equal(await post(TOK.alice), 200); assert.equal(await post(TOK.alice), 200);
+  assert.equal(await post(TOK.alice), 429, 'third call for the same user is refused');
+  assert.equal(await post(TOK.bob), 200);
+  assert.equal(await post(TOK.carol), 429, 'server-wide cap reached');
+});
+
+test('a firewall intercepting TLS is reported as TLS_INTERCEPTED, not a vague network error', async () => {
+  const {failure} = await import('../server/providers.mjs');
+  const e = Object.assign(new TypeError('fetch failed'), {cause: Object.assign(new Error('unable to verify the first certificate'), {code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE'})});
+  const r = failure('realitydefender', e, 'Authenticity check');
+  assert.equal(r.status, 'unavailable'); assert.equal(r.code, 'TLS_INTERCEPTED'); assert.match(r.message, /did not send anything/);
+  assert.equal(failure('realitydefender', new TypeError('fetch failed'), 'X').code, 'NETWORK_ERROR');
+});

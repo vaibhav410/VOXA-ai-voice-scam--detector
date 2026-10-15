@@ -103,6 +103,10 @@ export function loadConfig(env = process.env) {
 
   // ---- limits (current hard limits in the media pipeline; reported, and guarded against loosening)
   const limits = {voiceMB: 20, imageMB: 10, videoMB: 32, noiseSeconds: 300, jsonKB: 256};
+  // Daily caps on provider-backed requests (analysis, transcription, intelligence), so a public deployment with open
+  // sign-up cannot drain paid credits. In-memory, reset at 00:00 UTC.
+  const quotas = {perUser: int(pick(env, 'PROVIDER_DAILY_LIMIT_PER_USER'), 20), total: int(pick(env, 'PROVIDER_DAILY_LIMIT_TOTAL'), 200)};
+  if (quotas.perUser < 1 || quotas.total < 1) errors.push('PROVIDER_DAILY_LIMIT_* must be at least 1.');
 
   // ---- debug / FREE_MODE
   if (/^(1|true|on|yes)$/i.test(pick(env, 'VOXA_DEBUG') || '')) { if (prod) errors.push('VOXA_DEBUG must be off in production.'); else warnings.push('VOXA_DEBUG is on.'); }
@@ -114,7 +118,7 @@ export function loadConfig(env = process.env) {
     auth: {mode: authMode, clerkSecret, clerkPublishable, clerkFrontendApi: clerkFrontendApi(clerkPublishable), requireProviderConsent: authMode === 'clerk'},
     hosts, origins, db, ring: ring && !ring.error ? ring : null,
     retention: {reportDays, transcriptMode, transcriptDays},
-    limits, freeMode
+    limits, quotas, freeMode
   };
 }
 
