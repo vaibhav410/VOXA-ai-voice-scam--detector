@@ -59,7 +59,7 @@ const report = (id, extra = {}) => ({id, reportType: 'voice_authenticity', modal
 // ---------------------------------------------------------------- database
 test('migrations: clean database, idempotent re-run, RLS on every table, constraints enforced', async () => {
   const db = await openDb({kind: 'memory'});
-  assert.deepEqual(await migrate(db), ['20261015120000_voxa_core']);
+  assert.deepEqual(await migrate(db), ['20261015120000_voxa_core', '20261015130000_voxa_app_role']);
   assert.deepEqual(await migrate(db), [], 'second run applies nothing');
   assert.deepEqual((await migrationStatus(db)).pending, []);
   const tables = await db.query("select c.relname, c.relrowsecurity from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'voxa' and c.relkind = 'r'");
