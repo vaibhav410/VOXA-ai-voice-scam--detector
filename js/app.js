@@ -389,6 +389,7 @@
   const Priv = makePrivacy({ $, esc, toast, fmt, store, incidents, uid, section, table, STATUS, previews });
   const Sync = window.VoxaSync = makeSync({ store, incidents, toast, rerender: () => render() });
   const NP = makeNoisePage({ $, esc, incidents, fmt, reportTypeOf, postBlob, saveNoiseReport, setCleanup: fn => { cleanupAnalyze = fn; }, getSector: () => sector, upid, toast });
+  const Call = makeCallHost({ $, esc, toast, store, incidents, uid, getSector: () => sector, setCleanup: fn => { cleanupAnalyze = fn; } });
   const INTEL_ROWS = [['language','Language'],['dialect','Dialect'],['speakers','Speaker info'],['tone','Tone'],['context','Context'],['message','Message'],['translation','Translation (English)']];
   // Scam-intent graphs. Everything is computed from the rule matches of this report; nothing is estimated.
   const IG_CAT = {
@@ -552,7 +553,7 @@
   }
   /* ---------- router ---------- */
   const Hist = makeHistory({$,esc,store,incidents,PRI,pill,STATUS,toast,reportTypeOf,RT});
-  const OWN = { history:['History',Hist.View,Hist.setup], noise:['Noise reduction',NP.View,NP.setup], privacy:['Privacy scan',Priv.View,Priv.setup], team:['Team',Acct.Team,Acct.setupTeam], profile:['Account',Acct.Account,Acct.setupAccount], audit:['Audit log',Acct.Audit,Acct.setupAudit], 'call-safety':['Call safety dashboard',Safety.Dashboard,Safety.setupDashboard], live:['Live monitor',Safety.Live,Safety.setupLive], meetings:['Meetings',Safety.Meetings,Safety.setupMeetings], integrations:['Integrations',Mod.Integrations,Mod.setupIntegrations], intelligence:['Intelligence',Mod.Intelligence,Mod.setupIntelligence], signal:['Signal',Mod.Signal,Mod.setupSignal], watermarking:['Watermarking',Mod.Watermarking,Mod.setupWatermarking], 'chrome-extension':['Chrome extension',Mod.ChromeExtension,Mod.setupChromeExtension], evaluation:['Evaluation',Safety.Evaluation,Safety.setupEvaluation], analyze: ['New analysis', Analyze, setupAnalyze], incidents: ['Call reports', Incidents, setupIncidents], settings: ['Settings', Settings, setupSettings] };
+  const OWN = { history:['History',Hist.View,Hist.setup], noise:['Noise reduction',NP.View,NP.setup], privacy:['Privacy scan',Priv.View,Priv.setup], call:['Protected call',Call.View,Call.setup], team:['Team',Acct.Team,Acct.setupTeam], profile:['Account',Acct.Account,Acct.setupAccount], audit:['Audit log',Acct.Audit,Acct.setupAudit], 'call-safety':['Call safety dashboard',Safety.Dashboard,Safety.setupDashboard], live:['Live monitor',Safety.Live,Safety.setupLive], meetings:['Meetings',Safety.Meetings,Safety.setupMeetings], integrations:['Integrations',Mod.Integrations,Mod.setupIntegrations], intelligence:['Intelligence',Mod.Intelligence,Mod.setupIntelligence], signal:['Signal',Mod.Signal,Mod.setupSignal], watermarking:['Watermarking',Mod.Watermarking,Mod.setupWatermarking], 'chrome-extension':['Chrome extension',Mod.ChromeExtension,Mod.setupChromeExtension], evaluation:['Evaluation',Safety.Evaluation,Safety.setupEvaluation], analyze: ['New analysis', Analyze, setupAnalyze], incidents: ['Call reports', Incidents, setupIncidents], settings: ['Settings', Settings, setupSettings] };
   function tabFor(route) {
     if (route === 'live') return 'live';
     if (['incidents','evaluation'].includes(route)) return 'reports';
@@ -584,7 +585,7 @@
   };
   const navIcon = label => {
     const l = label.toLowerCase();
-    const k = /noise/.test(l) ? 'denoise' : /privacy|audit/.test(l) ? 'shield' : /call safety|^dashboard|overview/.test(l) ? (l.includes('call safety') ? 'shield' : 'grid') : /analy|upload/.test(l) ? 'upload' : /live|speech|meeting|voice|tts|text-to/.test(l) ? 'mic' : /report|incident|flagged|history/.test(l) ? 'file' : /evaluat|intellig/.test(l) ? 'flask' : /setting/.test(l) ? 'gear' : /key/.test(l) ? 'key' : /team|users|voices/.test(l) ? 'users' : /integrat|chrome|agent/.test(l) ? 'puzzle' : /investig/.test(l) ? 'search' : /watermark|library/.test(l) ? 'layers' : /project|enhance/.test(l) ? 'video' : /signal/.test(l) ? 'wave' : 'grid';
+    const k = /noise/.test(l) ? 'denoise' : /privacy|audit|protected/.test(l) ? 'shield' : /call safety|^dashboard|overview/.test(l) ? (l.includes('call safety') ? 'shield' : 'grid') : /analy|upload/.test(l) ? 'upload' : /live|speech|meeting|voice|tts|text-to/.test(l) ? 'mic' : /report|incident|flagged|history/.test(l) ? 'file' : /evaluat|intellig/.test(l) ? 'flask' : /setting/.test(l) ? 'gear' : /key/.test(l) ? 'key' : /team|users|voices/.test(l) ? 'users' : /integrat|chrome|agent/.test(l) ? 'puzzle' : /investig/.test(l) ? 'search' : /watermark|library/.test(l) ? 'layers' : /project|enhance/.test(l) ? 'video' : /signal/.test(l) ? 'wave' : 'grid';
     return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${NAV_SVG[k]}</svg>`;
   };
   function render() {

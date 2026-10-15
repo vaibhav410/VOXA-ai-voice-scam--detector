@@ -105,6 +105,59 @@ If a value cannot be measured the report says `Unavailable` or `Insufficient evi
 
 **Tests and evaluation:** `npm test` (the noise tests use real speech from the Windows built-in voices and skip those cases elsewhere). `node tools/evaluate-noise.mjs [--denoise]` prints estimates next to ground truth. `node tools/crawler/noise-e2e.mjs <url>` drives the real UI in a browser.
 
+## Protected call (real-time scam detection with optional auto-end)
+
+`#/call` (sidebar: Overview → Protected call). The signed-in user starts a two-person audio call in the browser and sends the invite link to the other person. While they talk, the other person's speech is transcribed live and checked against the same scam rules used for uploaded recordings.
+
+**How it works**
+- Audio goes browser-to-browser over WebRTC. The server (`server/call.mjs`, WebSocket `/api/call`) only relays connection set-up messages (SDP and ICE).
+- The host's browser streams the other person's audio to the existing `/api/live` socket (Deepgram streaming). Each transcript segment comes back with Deepgram's confidence.
+- `js/call-risk.js` scores the segments. It shows:
+  - the state: Listening, Low, Medium, High, Critical or **Analysis unavailable**;
+  - the rule score and recognition confidence;
+  - each piece of evidence with the quote, its time in the call and its confidence.
+- Grey interim text is shown as "possibly" and never raises the risk.
+- Thresholds are adjustable under "Risk thresholds and auto-end policy" and are saved in this browser (`voxa:callPolicy`).
+
+**Auto-end (off by default).** The "Auto-end high-risk calls" switch ends only the active VOXA call, and only when all of these are true:
+- Analysis is available and fresh (a transcript within the last 20 s).
+- The state is at least the chosen level (Critical by default).
+- At least 2 different rules matched (never fewer).
+- The matches came from at least 2 separate final statements (never fewer).
+- Recognition confidence is at least 0.75.
+- The user has not pressed "Keep the call" during this call.
+
+When the policy is met, a 5-second countdown shows the reason and a "Keep the call" button. The policy is checked again at zero, so the call ends only if it still holds. The host sees the reason. The other person only sees "The call has ended".
+
+If transcription fails or disconnects, the page shows "Analysis unavailable" and auto-end is disabled.
+
+**Consent and authorization**
+- The host must confirm they have the other person's permission. The guest page explains the analysis and requires the guest to agree before joining. The server also refuses any join without `consent: true`.
+- Rooms can only be created through the authenticated API (`POST /api/calls`). Each room has one-time host and guest keys, and the server keeps only their SHA-256 hashes.
+- The guest key travels only in the link's `#fragment`, which browsers never send to servers, and the guest page removes it from the address bar.
+- A room allows one host and one guest and checks the origin. It expires after 2 hours and cannot be rejoined after it ends.
+
+**Privacy**
+- No audio is recorded or stored. Media buffers, tracks and sockets are released when the call ends or the page is left.
+- The transcript stays in the host's browser unless they press "Save as report".
+- Audit events (`call.created`, `call.ended`, `call.auto_ended`) hold only the reason, the risk state and rule ids. They never hold transcript text.
+
+**Limitations**
+- VOXA can only end calls made through VOXA. It cannot detect, listen to or hang up phone (cellular), WhatsApp, Meet, Zoom or other apps' calls.
+- No TURN server is configured by default. Callers behind strict NAT or corporate firewalls may fail to connect; set `VOXA_ICE_SERVERS` to add TURN.
+- Only the guest's speech is analyzed (the host is the person being protected).
+- Detection is rule-based on automatic transcripts. It can miss scams phrased in unexpected ways and can mishear speech in noise or mixed languages. It does not check whether the voice is synthetic. This is decision support, not proof.
+- Each active call uses one Deepgram streaming session (limit `VOXA_MAX_LIVE_SESSIONS`, default 4). Rooms are kept in server memory, so a server restart ends open calls.
+- Microphone access on another device needs HTTPS (the Cloudflare URL works; a plain LAN `http://` address does not).
+
+**Tests:**
+- `node --test tests/call-risk.test.mjs tests/call.test.mjs` covers the policy and signalling security.
+- `node tools/crawler/call-e2e.mjs <scam.wav> <normal.wav>` runs two real browsers with a WAV file as the guest's microphone. It checks four cases:
+  - A scam call is auto-ended.
+  - An ordinary call stays Low.
+  - "Analysis unavailable" never ends a call.
+  - A used invite link is refused.
+
 ## Intelligence, Signal, Watermarking and the Chrome extension
 
 - **Intelligence** (`#/intelligence`): for each saved report, shows voice/image/video authenticity, scam intent and transcription as three separate assessments with provider, status, timestamps and processing errors. Scores appear only when the provider returned them.

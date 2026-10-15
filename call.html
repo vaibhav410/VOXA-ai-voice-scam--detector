@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Protected call — VOXA</title><meta name="theme-color" content="#15203b"><meta name="referrer" content="no-referrer">
+<link rel="stylesheet" href="css/fonts.css">
+<link rel="stylesheet" href="css/metis.css"><link rel="stylesheet" href="css/analyze.css"><link rel="stylesheet" href="css/modules.css"><link rel="stylesheet" href="css/call.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2040%2040%22%3E%3Crect%20width%3D%2240%22%20height%3D%2240%22%20rx%3D%2210%22%20fill%3D%22%23194e3f%22%2F%3E%3Cpath%20d%3D%22M10%2011l10%2019%2010-19%22%20fill%3D%22none%22%20stroke%3D%22%23e7f2e7%22%20stroke-width%3D%224%22%2F%3E%3C%2Fsvg%3E">
+</head>
+<body style="background:var(--mt-bg);margin:0"><main class="pcg">
+<div class="logo"><svg width="29" height="24" viewBox="0 0 29 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2 10v4m5-8v12m5-16v20m5-14v8m5-12v16m5-10v4"/></svg>VOXA</div>
+<section id="g-join"><h1>You are invited to a protected call</h1>
+<p>Someone is calling you through VOXA. During this call, VOXA listens to what <b>you</b> say and checks it for scam patterns (for example, requests for OTPs or urgent payments) to protect the person who invited you.</p>
+<section class="an-card"><div class="an-card-b">
+<ul><li>Your voice goes directly to the other person's browser.</li><li>Your speech is transcribed by a speech-to-text service while the call is active, then discarded. No audio is recorded or stored.</li><li>The person who invited you may end the call, and VOXA may end it automatically if strong scam evidence is heard.</li></ul>
+<label class="pcg-consent"><input type="checkbox" id="g-consent"> I understand and agree that my speech is analyzed for scam patterns during this call.</label>
+<div class="row"><button class="mt-btn primary" id="g-join-btn" type="button">Join call</button><span class="status" id="g-status" role="status"></span></div>
+</div></section></section>
+<section id="g-live" hidden><h1>Connected</h1><p class="status" id="g-live-status">Connecting…</p>
+<audio id="g-remote" autoplay></audio>
+<div class="row"><button class="mt-btn" id="g-mute" type="button">Mute my mic</button><button class="mt-btn danger" id="g-end" type="button">End call</button></div></section>
+<section id="g-done" hidden><h1 id="g-done-h">The call has ended</h1><p id="g-done-p">You can close this page.</p></section>
+</main>
+<script src="js/call-guest.js"></script></body></html>

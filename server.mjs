@@ -21,6 +21,7 @@ import {openDb, migrate} from './server/db.mjs';
 import {correlationId, safeLogger} from './server/audit.mjs';
 import {purgeExpired} from './server/repo.mjs';
 import {cleanupStaleTemp} from './server/media.mjs';
+import {createCallRooms, attachCall} from './server/call.mjs';
 const root = path.dirname(fileURLToPath(import.meta.url));
 // Existing local setup is supported; these files are never served.
 export function loadEnv() { for (const name of ['.env.local','css/.env.local']) if (existsSync(path.join(root,name))) process.loadEnvFile(path.join(root,name)); }
@@ -66,7 +67,9 @@ const GATED={'/api/analyze':{providers:true,group:'analyze'},'/api/transcribe':{
 export function createServer(keys={}, fetcher=fetch, opts={}) {
  let busy=false;
  const cfg=opts.cfg || loadConfig({AUTH_MODE:'demo'});
- const api=createApi({cfg, db:opts.db || null, auth:opts.auth || createAuth(cfg), logger:opts.logger});
+ const calls=opts.calls || createCallRooms();
+ const api=createApi({cfg, db:opts.db || null, auth:opts.auth || createAuth(cfg), logger:opts.logger, calls});
+ calls.audit=api.audit;
  const hostOk=h=>cfg.hosts.includes(String(h || '').replace(/:\d+$/,'').toLowerCase());
  const server=http.createServer(async(req,res)=>{
   const cid=correlationId();
@@ -228,13 +231,13 @@ export function createServer(keys={}, fetcher=fetch, opts={}) {
    if(req.method!=='GET' && req.method!=='HEAD') return json(405,{error:'Method not allowed.'});
    const p=decodeURIComponent(url.pathname);
    // Explicit public asset allowlist prevents accidental publication of keys, sources, or archives.
-   if(!/^\/(?:index\.html|login\.html|app\.html|design-tokens\.css|css\/[a-zA-Z0-9_-]+\.css|js\/[a-zA-Z0-9_-]+\.js|assets\/fonts\/[a-zA-Z0-9_-]+\.woff2)?$/.test(p)) return json(404,{error:'Not found.'});
+   if(!/^\/(?:index\.html|login\.html|app\.html|call\.html|design-tokens\.css|css\/[a-zA-Z0-9_-]+\.css|js\/[a-zA-Z0-9_-]+\.js|assets\/fonts\/[a-zA-Z0-9_-]+\.woff2)?$/.test(p)) return json(404,{error:'Not found.'});
    const target=path.join(root,p==='/' ? 'index.html' : p.slice(1));
    const data=await readFile(target);
    res.writeHead(200,{'Content-Type':types[path.extname(target)],'X-Content-Type-Options':'nosniff','Cache-Control':'no-store'});res.end(req.method==='HEAD' ? undefined : data);
   } catch(e) {if(!res.headersSent)json(e.code==='ENOENT'?404:500,{error:e.code==='ENOENT'?'Not found.':'Request could not be completed.'});else res.end();}
  });
- server.voxa={cfg,api,hostOk};
+ server.voxa={cfg,api,hostOk,calls};
  return server;
 }
 if(process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
@@ -260,6 +263,9 @@ if(process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.
  const auth=createAuth(cfg);
  const server=createServer(keys,fetch,{cfg,db,auth,logger:log});server.requestTimeout=300000;
  attachLive(server,keys,undefined,{hostOk:server.voxa.hostOk,authorize:async req=>{const id=await auth.identifyWs(req);return Boolean(id && !id.invalid);}});
+ attachCall(server,server.voxa.calls,{hostOk:server.voxa.hostOk,originOk:(o,host)=>Boolean(o) && (o===`http://${host}` || o===`https://${host}` || cfg.origins.includes(o))});
+ // Any other WebSocket path: refuse instead of leaving the socket hanging.
+ server.on('upgrade',(req,socket)=>{ if(!['/api/live','/api/call'].includes(req.url)) socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n'); });
  const housekeeping=async()=>{ try { if (db && await server.voxa.api.ready()) { const r=await purgeExpired(db); if (r.analyses||r.transcripts||r.invitations||r.auditEvents) log('retention_purge',{count:r.analyses+r.transcripts+r.invitations+r.auditEvents}); } } catch {} try { await cleanupStaleTemp(); } catch {} };
  housekeeping(); setInterval(housekeeping,3600000).unref();
  server.listen(cfg.port,lan?'0.0.0.0':cfg.bindHost,()=>{

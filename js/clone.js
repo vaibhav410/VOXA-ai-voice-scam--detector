@@ -14,13 +14,13 @@ window.makeClone = function (c) {
   ];
   const SIDE = {
     detect: { cta: 'Analyze media', ctaHref: '#/analyze', groups: [
-      ['Overview', [['Dashboard', '⌂', '#/call-safety'], ['Analyze media', '', '#/analyze'], ['History', '', '#/history']]],
+      ['Overview', [['Dashboard', '⌂', '#/call-safety'], ['Analyze media', '', '#/analyze'], ['Protected call', '', '#/call'], ['History', '', '#/history']]],
       ['Products', [['Meetings', '▭', '#/meetings'], ['Deepfake Detect Reports', '◉', '#/reports'], ['Chrome Extension', '◍', '#/chrome-extension'], ['Integrations', '▦', '#/integrations']]],
       ['Models', [['Intelligence', '◎', '#/intelligence'], ['Signal', '⛉', '#/signal'], ['Watermarking', '⚑', '#/watermarking'], ['Noise reduction', '', '#/noise'], ['Privacy scan', '', '#/privacy']]],
       ['Manage', [['API Keys', '⚷', '#/api-keys'], ['Manage Team', '☷', '#/team'], ['Audit log', '', '#/audit'], ['Settings', '⚙', '#/settings']]]] }
   };
 
-  SIDE.live = {cta:'Start monitoring',ctaHref:'#/live',groups:[['Live',[['Live monitor','','#/live'],['Live sessions','','#/incidents/live']]],['Manage',[['Settings','','#/settings']]]]};
+  SIDE.live = {cta:'Start monitoring',ctaHref:'#/live',groups:[['Live',[['Live monitor','','#/live'],['Protected call','','#/call'],['Live sessions','','#/incidents/live']]],['Manage',[['Settings','','#/settings']]]]};
   SIDE.reports = {cta:'Analyze media',ctaHref:'#/analyze',groups:[['Reports',[['History','','#/history'],['All reports','','#/incidents'],['Uploaded media','','#/incidents/uploaded'],['Live sessions','','#/incidents/live'],['Deepfake Detect Reports','','#/reports']]],['Quality',[['Evaluation','','#/evaluation']]],['Manage',[['Settings','','#/settings']]]]};
   const Reports = () => {
     const list = incidents();

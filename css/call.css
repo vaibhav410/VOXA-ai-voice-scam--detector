@@ -1,0 +1,51 @@
+/* VOXA Protected Call (host page in the app, and the guest page call.html) */
+.pc .sub{max-width:720px}
+.pc-opts{flex-direction:column;align-items:stretch!important;gap:14px!important}
+.pc-opts label.an-consent,.pc-opts .pc-switch{align-items:flex-start!important;line-height:1.5}
+.pc-opts label.an-consent input,.pc-switch input{margin-top:3px!important;flex:none}
+.pc-switch span{display:flex;flex-direction:column;gap:2px}
+.pc-switch small{color:var(--mt-mut);font-size:12px}
+.pc-adv{border-top:1px solid var(--mt-line);padding-top:10px;font-size:13px}
+.pc-adv summary{cursor:pointer;color:var(--mt-ink);font-weight:500}
+.pc-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px 14px;margin-top:12px}
+.pc-grid label{display:flex!important;flex-direction:column;align-items:stretch!important;gap:4px!important;font-size:12px!important;color:var(--mt-mut)!important}
+.pc-grid input,.pc-grid select{height:32px;border:1px solid var(--mt-line);border-radius:6px;padding:0 8px;font:inherit;font-size:13px;color:var(--mt-ink);background:#fff}
+.pc-invite{margin-bottom:14px}
+.pc-invite.pc-connected .an-info#pc-status{color:#047857;font-weight:500}
+.pc-link{display:flex;gap:8px}
+.pc-link input{flex:1;min-width:0;height:34px;border:1px solid var(--mt-line);border-radius:7px;padding:0 10px;font:12.5px var(--mono,monospace);color:var(--mt-ink);background:var(--mt-bg)}
+.pc-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:stretch}
+.pc-chip{font:600 11.5px var(--sans);border-radius:999px;padding:4px 10px;border:1px solid transparent;white-space:nowrap}
+.pc-chip.na{background:#f3f4f6;color:#4b5563;border-color:#e5e7eb}
+.pc-chip.ok{background:#ecfdf5;color:#047857;border-color:#a7f3d0}
+.pc-chip.warn{background:#fffbeb;color:#92400e;border-color:#fde68a}
+.pc-chip.bad{background:#fef2f2;color:#b91c1c;border-color:#fecaca}
+.pc-chip.crit{background:#b91c1c;color:#fff}
+.pc-kv{margin:0 0 6px}
+.pc-h3{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--mt-mut);margin:14px 0 6px}
+#pc-ev-list .ev{padding:8px 12px;margin:0 0 8px;border-radius:0 6px 6px 0;font-size:13px;color:#374151;overflow-wrap:anywhere}
+
+#pc-ev-list .ev small{display:block;color:var(--mt-mut);font-size:11.5px;margin:2px 0 3px}
+.pc-transcript{white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;min-height:120px;overflow-y:auto;padding:12px;background:var(--mt-bg);border:1px solid var(--mt-line);border-radius:7px;font-size:13.5px;line-height:1.7;color:var(--mt-ink)}
+.pc-interim{color:#9ca3af}
+.pc-warn{border:1px solid #fecaca;background:#fef2f2;color:#7f1d1d;border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:13px}
+.pc-warn p{margin:4px 0 0}
+.pc-warn .mt-btn{margin-top:10px}
+.pc-warn.pc-count{border-color:#b91c1c;box-shadow:0 0 0 3px rgba(185,28,28,.12)}
+.pc-warn.pc-ended{border-color:#b91c1c}
+#pc-done .pc-warn:not(.pc-ended){background:#f9fafb;border-color:var(--mt-line);color:var(--mt-ink)}
+#pc-done .row-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+@media(max-width:860px){.pc-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.pc-cols{grid-template-columns:1fr}}
+@media(max-width:480px){.pc-grid{grid-template-columns:1fr}.pc-link{flex-direction:column}}
+
+/* Guest page */
+.pcg{max-width:560px;margin:0 auto;padding:40px 16px 60px;font-family:var(--sans,system-ui,sans-serif);color:var(--mt-ink)}
+.pcg .logo{display:flex;align-items:center;gap:8px;font-weight:700;font-size:16px;margin-bottom:28px;color:#194e3f}
+.pcg h1{font-size:24px;margin:0 0 8px}
+.pcg p{line-height:1.6;color:#374151;font-size:14px}
+.pcg .an-card{margin-top:18px}
+.pcg label.pcg-consent{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;line-height:1.55;color:#374151;margin:6px 0 14px}
+.pcg label.pcg-consent input{margin-top:4px;flex:none;width:15px;height:15px;accent-color:var(--mt-blue)}
+.pcg .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.pcg .status{font-size:13px;color:var(--mt-mut)}
+.pcg ul{padding-left:18px;font-size:13px;color:#374151;line-height:1.6}

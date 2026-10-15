@@ -4,16 +4,19 @@ import {WebSocketServer,WebSocket} from 'ws';
 export function attachLive(server, keys, connect = (url,opts) => new WebSocket(url,opts), opts = {}) {
   // In Clerk mode the browser offers subprotocols ['voxa-auth', <session token>]; the server answers 'voxa-auth'.
   const wss = new WebSocketServer({noServer:true,maxPayload:256*1024,handleProtocols:protocols=>protocols.has('voxa-auth') ? 'voxa-auth' : false});
-  let active = null;
+  // A few concurrent sessions (each one is a separate Deepgram stream). Other upgrade paths are left to other handlers.
+  const MAX_LIVE = Math.max(1, Number(process.env.VOXA_MAX_LIVE_SESSIONS) || 4);
+  const active = new Set();
   server.on('upgrade',(req,socket,head)=>{
     const host=req.headers.host || '';
     const hostAllowed = opts.hostOk ? opts.hostOk(host) : /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host);
-    if(!hostAllowed || req.url!=='/api/live' || ![`http://${host}`,`https://${host}`].includes(req.headers.origin) || !keys.deepgram || active) {
+    if(req.url!=='/api/live') return;
+    if(!hostAllowed || ![`http://${host}`,`https://${host}`].includes(req.headers.origin) || !keys.deepgram || active.size>=MAX_LIVE) {
       socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');return;
     }
-    const go=()=>wss.handleUpgrade(req,socket,head,client=>{active=client;wss.emit('connection',client);});
+    const go=()=>wss.handleUpgrade(req,socket,head,client=>{active.add(client);wss.emit('connection',client);});
     if(!opts.authorize) return go();
-    opts.authorize(req).then(ok=>{ if(ok && !active) go(); else socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n'); }).catch(()=>socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n'));
+    opts.authorize(req).then(ok=>{ if(ok && active.size<MAX_LIVE) go(); else socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n'); }).catch(()=>socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n'));
   });
   wss.on('connection',client=>{
     const url='wss://api.deepgram.com/v1/listen?model=nova-3&language=multi&interim_results=true&smart_format=true&endpointing=300&mip_opt_out=true';
@@ -27,7 +30,7 @@ export function attachLive(server, keys, connect = (url,opts) => new WebSocket(u
       try {const d=JSON.parse(raw.toString());
         if(d.type==='Results') {
           const alt=d.channel?.alternatives?.[0];
-          if(typeof alt?.transcript==='string')send({type:'transcript',text:alt.transcript.slice(0,12000),final:Boolean(d.is_final),start:d.start,duration:d.duration});
+          if(typeof alt?.transcript==='string')send({type:'transcript',text:alt.transcript.slice(0,12000),final:Boolean(d.is_final),start:d.start,duration:d.duration,confidence:typeof alt.confidence==='number'&&Number.isFinite(alt.confidence)?alt.confidence:null});
         } else if(d.type==='Error')fail();
       } catch {fail();}
     });
@@ -39,7 +42,7 @@ export function attachLive(server, keys, connect = (url,opts) => new WebSocket(u
       if(binary)upstream.send(data,{binary:true});
       else {try {if(JSON.parse(data.toString()).type==='stop')upstream.send(JSON.stringify({type:'CloseStream'}));}catch {client.close(1008);}}
     });
-    const cleanup=()=>{if(active===client)active=null;clearTimeout(lifetime);clearInterval(keep);if(upstream.readyState===WebSocket.CONNECTING)upstream.terminate();else if(upstream.readyState===WebSocket.OPEN)upstream.close();};
+    const cleanup=()=>{active.delete(client);clearTimeout(lifetime);clearInterval(keep);if(upstream.readyState===WebSocket.CONNECTING)upstream.terminate();else if(upstream.readyState===WebSocket.OPEN)upstream.close();};
     client.on('close',cleanup);client.on('error',cleanup);
   });
   return wss;

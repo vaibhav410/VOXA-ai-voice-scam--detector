@@ -30,6 +30,7 @@ const ROUTES = [
   ['DELETE', /^\/api\/teams\/([^/]+)\/members\/([^/]+)$/, 'removeMember'],
   ['POST', /^\/api\/invitations\/accept$/, 'acceptInvite'],
   ['GET', /^\/api\/admin\/audit-events$/, 'auditEvents'],
+  ['POST', /^\/api\/calls$/, 'createCall', {db: 'optional'}],
   ['POST', /^\/api\/privacy\/scan$/, 'privacyScan', {group: 'privacy', db: 'optional'}],
   ['GET', /^\/api\/me\/preferences$/, 'getPrefs'],
   ['PUT', /^\/api\/me\/preferences$/, 'putPrefs'],
@@ -37,7 +38,7 @@ const ROUTES = [
   ['POST', /^\/api\/me\/deletion-requests$/, 'deleteMe']
 ];
 
-export function createApi({cfg, db, auth, logger = safeLogger()}) {
+export function createApi({cfg, db, auth, logger = safeLogger(), calls = null}) {
   const audit = createAudit(db, logger);
   const allow = createLimiter();
   let health = db ? null : {configured: false};
@@ -241,6 +242,15 @@ export function createApi({cfg, db, auth, logger = safeLogger()}) {
       }
       h.json(200, {scan, saved});
     },
+    async createCall(req, h, m, id, u) {
+      if (!calls) return h.fail(503, 'CALLS_UNAVAILABLE', 'Protected calls are not available on this server.');
+      const r = calls.create(id.subject);
+      if (r.error === 'TOO_MANY') return h.fail(429, 'TOO_MANY_CALLS', 'You already have 5 open protected calls. End one first.');
+      if (r.error) return h.fail(503, 'BUSY', 'The server is handling too many calls. Try again shortly.');
+      await audit({actorUserId: u?.id || null, action: 'call.created', targetType: 'call', targetId: r.roomId.slice(0, 8), correlationId: h.cid});
+      // The guest key travels only in the invite link's #fragment, which browsers never send to servers or proxies.
+      h.json(201, {...r, invitePath: `/call.html#${r.roomId}.${r.guestKey}`});
+    },
     async getPrefs(req, h, m, id, u) { h.json(200, await repo.getPreferences(db, u.id)); },
     async putPrefs(req, h, m, id, u) {
       const body = await readJson(req, h); if (body === undefined) return;
@@ -265,6 +275,7 @@ export function createApi({cfg, db, auth, logger = safeLogger()}) {
   };
 
   return {
+    audit,
     ready,
     health: async () => (db ? (health = await dbHealth(db)) : {configured: false}),
     // New API routes. Returns true when the request was handled.
