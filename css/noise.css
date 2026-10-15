@@ -14,3 +14,8 @@
 .nr-recent li{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:9px 0;border-top:1px solid var(--mt-line);font-size:13px}
 .nr-recent li:first-child{border-top:0}
 .nr-recent span{color:var(--mt-mut)}
+.nr-enh{margin-top:12px}
+.nr-opt{display:flex;gap:10px;align-items:flex-start;padding:8px 0;font-size:13px;color:#374151;cursor:pointer}
+.nr-opt input{margin-top:3px}
+.nr-disclose{margin-top:8px;background:#fff8e6;border:1px solid #f0dca0;border-radius:6px;padding:10px 12px;font-size:12.5px}
+.nr-disclose p{margin:0 0 8px;color:#5b4a1a}

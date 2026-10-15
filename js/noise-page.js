@@ -24,6 +24,10 @@ window.makeNoisePage = function (c) {
       <section class="an-card an-options"><label class="an-consent"><input type="checkbox" id="nr-consent"> I have permission from everyone in this recording to analyze it.</label>
         <label title="Creates a separate enhanced file using real noise reduction. The original is never changed."><input type="checkbox" id="nr-denoise" checked> Create enhanced copy (noise reduction)</label>
         <label title="Otherwise the report stays in this tab only"><input type="checkbox" id="nr-retain"> Keep report 24 h</label></section>
+      <section class="an-card nr-enh" id="nr-enh" hidden><div class="an-card-h"><h2>Noise removal method</h2></div><div class="an-card-b">
+        <label class="nr-opt"><input type="radio" name="nr-enh" value="local" checked> <span><b>Local</b> (FFmpeg on this computer). The audio never leaves this machine.</span></label>
+        <label class="nr-opt"><input type="radio" name="nr-enh" value="audo"> <span><b>Audo AI</b> (cloud, audo.ai). Much stronger noise removal; free tier covers only the first minute, 3 times a day.</span></label>
+        <div id="nr-audo-box" class="nr-disclose" hidden><p id="nr-audo-text"></p><label class="an-consent"><input type="checkbox" id="nr-audo-consent"> I agree to upload this recording to Audo AI for noise removal.</label></div></div></section>
       <div class="an-foot"><div class="service-chips"><span class="service-chip ok" title="Runs locally with FFmpeg; no provider key is used">Local processing</span></div>
         <div class="an-actions"><span id="nr-state" role="status" aria-live="polite"></span><button class="mt-btn" id="nr-cancel" type="button" hidden>Cancel</button><button class="mt-btn primary" id="nr-go" type="button">Analyze noise</button></div></div>
       <p class="an-note">Audio is processed on this computer and is not stored. The report keeps measurements only.</p>
@@ -37,7 +41,14 @@ window.makeNoisePage = function (c) {
     const controls = [...document.querySelectorAll('#view input,#view button')].filter(e => e.id !== 'nr-cancel');
     const busy = on => { if (disposed) return; controls.forEach(e => (e.disabled = on)); cancel.hidden = !on; };
     setCleanup(() => { disposed = true; controller?.abort(); prev?.pause?.(); if (url) URL.revokeObjectURL(url); });
-    fetch('/api/status').then(r => r.json()).then(d => { if (disposed || d?.tools?.ffmpeg !== false) return; $('#nr-warn').hidden = false; go.disabled = true; go.title = 'FFmpeg is not available'; }).catch(() => {});
+    fetch('/api/status').then(r => r.json()).then(d => {
+      if (disposed) return;
+      if (d?.tools?.ffmpeg === false) { $('#nr-warn').hidden = false; go.disabled = true; go.title = 'FFmpeg is not available'; }
+      if (d?.tools?.audo) { $('#nr-enh').hidden = false; $('#nr-audo-text').textContent = d.tools.audoDisclosure || ''; }
+    }).catch(() => {});
+    const enhancer = () => (document.querySelector('input[name="nr-enh"]:checked')?.value === 'audo' && !$('#nr-enh').hidden ? 'audo' : 'local');
+    const syncEnh = () => { $('#nr-audo-box').hidden = enhancer() !== 'audo' || !$('#nr-denoise').checked; };
+    document.querySelectorAll('input[name="nr-enh"]').forEach(r => (r.onchange = syncEnh)); $('#nr-denoise').addEventListener('change', syncEnh);
     const reject = m => { blob = meta = null; prev.hidden = true; info.textContent = m; toast(m); };
     const use = (file) => {
       const my = ++version; blob = meta = null; prev.hidden = true;
@@ -67,13 +78,15 @@ window.makeNoisePage = function (c) {
     go.onclick = async () => {
       if (!blob || !meta) return toast('Add an audio file first.');
       if (!$('#nr-consent').checked) return toast('Confirm consent before analyzing this recording.');
+      const useAudo = $('#nr-denoise').checked && enhancer() === 'audo';
+      if (useAudo && !$('#nr-audo-consent').checked) return toast('Agree to the Audo AI upload, or choose Local.');
       const wantEnhanced = $('#nr-denoise').checked, retain = $('#nr-retain').checked, lockBlob = blob, lockMeta = meta, lockUpload = uploadId, sector = getSector();
       controller = new AbortController(); busy(true);
       const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(240000)]);
       st.dataset.state = 'uploading'; st.textContent = 'Uploading… 0%';
       let res;
       try {
-        res = await postBlob('/api/noise?denoise=' + (wantEnhanced ? '1' : '0'), lockBlob, lockBlob.type || MIME[lockMeta.name.split('.').pop().toLowerCase()] || 'audio/wav', signal, f => { if (disposed) return; st.dataset.state = f < 1 ? 'uploading' : 'processing'; st.textContent = f < 1 ? `Uploading… ${Math.round(f * 100)}%` : wantEnhanced ? 'Measuring noise and creating the enhanced copy…' : 'Measuring noise and audio quality…'; });
+        res = await postBlob('/api/noise?denoise=' + (wantEnhanced ? '1' : '0') + (useAudo ? '&enhancer=audo' : ''), lockBlob, lockBlob.type || MIME[lockMeta.name.split('.').pop().toLowerCase()] || 'audio/wav', signal, f => { if (disposed) return; st.dataset.state = f < 1 ? 'uploading' : 'processing'; st.textContent = f < 1 ? `Uploading… ${Math.round(f * 100)}%` : wantEnhanced ? (useAudo ? 'Measuring noise; Audo AI is cleaning the audio…' : 'Measuring noise and creating the enhanced copy…') : 'Measuring noise and audio quality…'; }, useAudo ? {'X-Voxa-External-Consent': 'audo'} : {});
       } catch (e) { if (!disposed) { st.dataset.state = 'failed'; st.textContent = e.name === 'AbortError' ? 'Canceled. No report was saved.' : e.name === 'TimeoutError' ? 'Timed out. Please try again.' : e.message || 'The analysis server is unavailable.'; busy(false); } return; }
       if (disposed) return;
       if (!res.ok) { st.dataset.state = res.status === 415 || res.status === 422 ? 'unsupported' : 'failed'; st.textContent = res.data.error || 'Noise analysis failed.'; busy(false); return; }

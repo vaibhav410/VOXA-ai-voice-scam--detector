@@ -24,7 +24,7 @@ window.makeNoiseReport = function (c) {
     if (!enh.requested) {
       return (pv?.url ? orig : gone) + `<p class="rep-note">Enhancement applied: <b>No</b>. No enhanced copy was requested. Tick “Create enhanced copy” before Analyze Noise to produce one; the original is never modified.</p>`;
     }
-    if (!enh.applied) return (pv?.url ? orig : gone) + `<p class="rep-note">Enhancement applied: <b>No</b>. It was requested but could not be completed${enh.reason ? ' (' + esc(enh.reason) + ')' : ''}. The original is unchanged.</p>`;
+    if (!enh.applied) return (pv?.url ? orig : gone) + `<p class="rep-note">Enhancement applied: <b>No</b>. It was requested${enh.provider === 'audo' ? ' from Audo AI' : ''} but could not be completed${enh.reason ? ' (' + esc(enh.reason) + ')' : ''}. The original is unchanged.${enh.note ? ' ' + esc(enh.note) : ''}</p>`;
     const m = enh.measured || {}, b = enh.before || {}, a = enh.after || {};
     const enhPlayer = pv?.enhancedUrl
       ? `<div class="nz-aud"><h3>Enhanced copy</h3><audio src="${esc(pv.enhancedUrl)}" controls preload="metadata" aria-label="Play the enhanced audio"></audio><canvas id="i-wave2" class="rep-wave" height="120" aria-label="Enhanced audio waveform"></canvas>
@@ -34,12 +34,13 @@ window.makeNoiseReport = function (c) {
     const ba = `<table class="kvt nz-ba"><thead><tr><th></th><th>Before</th><th>After</th><th>Change</th></tr></thead><tbody>
       ${row('Noise floor (quietest frames)', u(b.floorDbfs, ' dBFS'), u(a.floorDbfs, ' dBFS'), sgn(m.floorChangeDb))}
       ${row('Estimated SNR', u(b.snrDb, ' dB'), u(a.snrDb, ' dB'), sgn(m.snrChangeDb))}
+      ${m.relativeFloorChangeDb !== null && m.relativeFloorChangeDb !== undefined ? row('Noise floor relative to speech', b.floorDbfs !== null && b.activeLevelDbfs !== null ? (Math.round((b.floorDbfs - b.activeLevelDbfs) * 10) / 10) + ' dB' : 'Unavailable', a.floorDbfs !== null && a.activeLevelDbfs !== null ? (Math.round((a.floorDbfs - a.activeLevelDbfs) * 10) / 10) + ' dB' : 'Unavailable', sgn(m.relativeFloorChangeDb)) : ''}
       ${row('Speech level', u(b.activeLevelDbfs, ' dBFS'), u(a.activeLevelDbfs, ' dBFS'), sgn(m.speechLevelChangeDb))}
       ${b.humProminenceDb !== null && b.humProminenceDb >= 10 ? row('Mains-hum prominence', u(b.humProminenceDb, ' dB'), u(a.humProminenceDb, ' dB'), sgn(m.humChangeDb)) : ''}
       ${row('Speech detected', b.speechDetected, a.speechDetected, b.speechDetected === a.speechDetected ? 'same' : 'changed')}</tbody></table>`;
     return `<div class="nz-pair">${pv?.url ? orig : ''}${enhPlayer}</div>
       ${pv?.url ? '' : gone}
-      ${table([['Enhancement applied', 'Yes'], ['Processing method', enh.method], ['Filter chain (FFmpeg)', `<code class="nz-code">${esc((enh.filters || []).join(', '))}</code>`, true], ['Output', enh.output ? `${enh.output.format}, ${enh.output.channels === 1 ? 'mono' : enh.output.channels + ' ch'}, ${enh.output.sampleRate.toLocaleString()} Hz, ${(enh.output.sizeBytes / 1024).toFixed(0)} KB` : null], ['Measured improvement', enh.measuredImprovement ? 'Yes (quiet level, SNR or hum fell or rose by the stated thresholds)' : 'No measurable improvement']])}
+      ${table([['Enhancement applied', 'Yes'], ['Processing method', enh.method], ['Processed', enh.provider === 'audo' ? 'In the cloud by Audo AI (audo.ai)' : 'On this computer'], ['Where the audio went', enh.provider === 'audo' ? enh.disclosure : null], ['Coverage', enh.partial ? `First ${enh.partial.coveredSeconds} s of ${enh.partial.totalSeconds} s only (Audo free tier)` : null], ['Filter chain (FFmpeg)', enh.filters?.length ? `<code class="nz-code">${esc(enh.filters.join(', '))}</code>` : null, true], ['Output', enh.output ? `${enh.output.format}, ${enh.output.channels === 1 ? 'mono' : enh.output.channels + ' ch'}, ${enh.output.sampleRate.toLocaleString()} Hz, ${(enh.output.sizeBytes / 1024).toFixed(0)} KB` : null], ['Measured improvement', enh.measuredImprovement ? 'Yes (quiet level, SNR or hum fell or rose by the stated thresholds)' : 'No measurable improvement']])}
       ${ba}
       <p class="rep-note">${esc(enh.note || '')}</p>
       <p class="rep-note">The rows above are signal measurements. Whether the enhanced audio sounds better is a listening judgement; VOXA does not score it.</p>`;

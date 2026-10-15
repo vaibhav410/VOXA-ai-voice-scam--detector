@@ -12,6 +12,9 @@ import {toWav, whiteNoise, pinkishNoise, sine, mix, scale, clipAt, ttsAvailable,
 import {mkdtempSync, rmSync} from 'node:fs';
 import path from 'node:path';
 
+// Private temp dir for this test process, so temp-file cleanup checks are exact even when files run in parallel.
+process.env.TEMP = process.env.TMP = process.env.TMPDIR = mkdtempSync(path.join(tmpdir(), 'voxa-test-'));
+
 const HAVE_FFMPEG = Boolean(await ffmpegPath());
 const skipFF = HAVE_FFMPEG ? false : 'FFmpeg is not available';
 const report = x => buildReport({sig: analyzeSignal(x), levels: levelStats(Int16Array.from(x, v => Math.round(v * 32767))), file: {durationSec: x.length / SR}});

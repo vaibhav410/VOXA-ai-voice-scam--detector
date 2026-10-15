@@ -8,6 +8,8 @@ import {detectRD,RD_EXT} from './server/realitydefender.mjs';
 import {PROVIDERS,freeModeOn,blockReason} from './server/free-mode.mjs';
 import {sniff,KIND,probe,extractAudio,ffmpegPath} from './server/media.mjs';
 import {analyzeNoise,NoiseError} from './server/noise.mjs';
+import {AUDO_DISCLOSURE} from './server/audo.mjs';
+export const audoEnabled = (env = process.env) => /^(1|true|on|yes)$/i.test(String(env.AUDO_ENABLED || '').trim());
 import './js/meeting-links.js';
 const MeetingLinks = globalThis.VoxaMeetingLinks;
 import {attachLive} from './server/live.mjs';
@@ -66,7 +68,7 @@ export function createServer(keys={}, fetcher=fetch) {
     }
     if(url.searchParams.get('probe')==='1') await healthCheck(details,keys,fetcher);
     const ff=await ffmpegPath();
-    return json(200,{freeMode:freeModeOn(),providers:Object.fromEntries(Object.entries(details).map(([k,d])=>[k,d.configured&&d.allowed])),details,tools:{ffmpeg:Boolean(ff),extension:Boolean(extensionId())},limits:{voiceMB:20,imageMB:10,videoMB:32},authProvider:{voice:pickAuth('voice','auto',keys),image:pickAuth('image','auto',keys),video:pickAuth('video','auto',keys)}});
+    return json(200,{freeMode:freeModeOn(),providers:Object.fromEntries(Object.entries(details).map(([k,d])=>[k,d.configured&&d.allowed])),details,tools:{ffmpeg:Boolean(ff),extension:Boolean(extensionId()),audo:audoEnabled(),audoDisclosure:audoEnabled()?AUDO_DISCLOSURE:null},limits:{voiceMB:20,imageMB:10,videoMB:32},authProvider:{voice:pickAuth('voice','auto',keys),image:pickAuth('image','auto',keys),video:pickAuth('video','auto',keys)}});
    }
    if(url.pathname === '/api/meeting-link/validate' && req.method === 'POST') {
     if(req.headers.origin !== url.origin || req.headers['x-voxa-request'] !== '1') return fail(403,'FORBIDDEN','Open VOXA on this server to validate links.');
@@ -98,6 +100,12 @@ export function createServer(keys={}, fetcher=fetch) {
     if(!['audio/wav','audio/x-wav','audio/mpeg','audio/flac','audio/ogg','audio/mp4','audio/webm'].includes(declared)) return fail(415,'UNSUPPORTED_TYPE','Noise analysis accepts audio files only (wav, mp3, flac, ogg, m4a, webm).');
     const max=20*1048576;
     if(Number(req.headers['content-length'])>max) return fail(413,'TOO_LARGE',`File exceeds the ${max/1048576} MB limit for audio.`);
+    const denoise=url.searchParams.get('denoise')==='1', enhancer=url.searchParams.get('enhancer')==='audo' ? 'audo' : 'local';
+    // Cloud enhancement only when the operator enabled it AND the user consented for this request; never a silent fallback.
+    if(denoise && enhancer==='audo') {
+     if(!audoEnabled()) return fail(403,'PROVIDER_DISABLED','Audo noise removal is turned off on this server (AUDO_ENABLED is not set).');
+     if(req.headers['x-voxa-external-consent']!=='audo') return fail(428,'CONSENT_REQUIRED','Consent is required before audio is sent to Audo AI.');
+    }
     busy=true;
     try {
      const chunks=[];let size=0;
@@ -113,7 +121,8 @@ export function createServer(keys={}, fetcher=fetch) {
      if(!info.audio) return fail(422,'NO_AUDIO','This file has no audio track.');
      if(info.duration!==null && info.duration<1) return fail(422,'TOO_SHORT','The audio is shorter than 1 second.');
      if(info.duration!==null && info.duration>300) return fail(422,'TOO_LONG','Noise analysis accepts audio up to 5 minutes.');
-     const {report,enhanced}=await analyzeNoise({bytes,mime,info,denoise:url.searchParams.get('denoise')==='1'});
+     const ac=new AbortController();res.on('close',()=>{if(!res.writableEnded)ac.abort();});
+     const {report,enhanced}=await analyzeNoise({bytes,mime,info,denoise,enhancer,fetcher,signal:ac.signal});
      return json(200,{noise:report,enhancedAudio:enhanced ? {mime:enhanced.mime,sampleRate:enhanced.sampleRate,channels:enhanced.channels,sizeBytes:enhanced.sizeBytes,base64:enhanced.bytes.toString('base64')} : null});
     } catch(e) {
      if(e instanceof NoiseError) return fail(e.status,e.code,e.message);

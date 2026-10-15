@@ -7,9 +7,9 @@
     catch (e) { throw e instanceof TypeError ? netError() : e; }
   };
   // fetch() cannot report upload progress, so uploads use XMLHttpRequest.
-  const postBlob = (url, blob, mime, signal, onProgress) => new Promise((resolve, reject) => {
+  const postBlob = (url, blob, mime, signal, onProgress, headers = {}) => new Promise((resolve, reject) => {
     const x = new XMLHttpRequest(); x.open('POST', url); x.responseType = 'json'; x.timeout = 240000;
-    x.setRequestHeader('Content-Type', mime); x.setRequestHeader('X-Voxa-Request', '1');
+    x.setRequestHeader('Content-Type', mime); x.setRequestHeader('X-Voxa-Request', '1'); for (const [k, v] of Object.entries(headers)) x.setRequestHeader(k, v);
     x.upload.onprogress = e => e.lengthComputable && onProgress?.(e.loaded / e.total);
     x.upload.onload = () => onProgress?.(1);
     x.onload = () => resolve({ ok: x.status >= 200 && x.status < 300, status: x.status, data: x.response || {} });

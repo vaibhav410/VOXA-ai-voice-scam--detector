@@ -1,8 +1,9 @@
 // VOXA noise analysis + optional enhancement. FFmpeg does the decoding and (when asked) the denoising;
 // server/noise-core.mjs does the measuring. Raw audio only touches a private temp directory that is always removed.
-import {readFile} from 'node:fs/promises';
+import {readFile, writeFile} from 'node:fs/promises';
 import path from 'node:path';
-import {ffmpegPath, run, withTemp} from './media.mjs';
+import {ffmpegPath, run, withTemp, probe} from './media.mjs';
+import {audoRemoveNoise, AudoError, AUDO_DISCLOSURE} from './audo.mjs';
 import {SR, MAX_SECONDS, analyzeSignal, levelStats, buildReport, round} from './noise-core.mjs';
 
 export class NoiseError extends Error { constructor(code, message, status = 422) { super(message); this.code = code; this.status = status; } }
@@ -49,7 +50,25 @@ export function enhancementChain(report) {
 const measure = sig => ({speechDetected: sig.speech.detected, floorDbfs: sig.floorDb, snrDb: sig.snrDb, activeLevelDbfs: sig.activeDb, humProminenceDb: sig.spectrumMetrics?.humPromDb ?? null, hissHighVsMidDb: sig.spectrumMetrics?.hissRatioDb ?? null});
 const diff = (a, b) => (a === null || b === null ? null : round(b - a));
 
-export async function analyzeNoise({bytes, mime, info, denoise = false}) {
+// Before/after comparison shared by every enhancer. Uses gain-independent figures (SNR, floor relative to speech)
+// because an enhancer may also change the overall level (Audo raises it), which would distort absolute dBFS.
+function compare(sig, after) {
+  const before = measure(sig), aft = measure(after);
+  const rel = m => (m.floorDbfs === null || m.activeLevelDbfs === null ? null : m.floorDbfs - m.activeLevelDbfs);
+  const measured = {floorChangeDb: diff(before.floorDbfs, aft.floorDbfs), relativeFloorChangeDb: diff(rel(before), rel(aft)), snrChangeDb: diff(before.snrDb, aft.snrDb), speechLevelChangeDb: diff(before.activeLevelDbfs, aft.activeLevelDbfs), humChangeDb: diff(before.humProminenceDb, aft.humProminenceDb)};
+  const improved = (measured.relativeFloorChangeDb !== null && measured.relativeFloorChangeDb <= -3) || (measured.snrChangeDb !== null && measured.snrChangeDb >= 3) || (measured.humChangeDb !== null && measured.humChangeDb <= -6)
+    || (measured.relativeFloorChangeDb === null && measured.floorChangeDb !== null && measured.floorChangeDb <= -3);
+  const speechKept = before.speechDetected !== 'yes' || aft.speechDetected === 'yes';
+  const note = (improved ? 'Measured: the noise floor fell relative to speech and/or the SNR estimate rose. Whether it sounds better is a listening judgement VOXA does not score. Denoising can also smear speech; analyse authenticity on the original.'
+    : 'No measurable improvement: the noise floor relative to speech, the SNR estimate and hum prominence did not change enough (3 dB, 3 dB, 6 dB). Compare by ear before relying on the enhanced copy.')
+    + (speechKept ? '' : ' Warning: speech was detected in the original but not in the enhanced copy, so the enhancement may have damaged it.')
+    + (measured.speechLevelChangeDb !== null && measured.speechLevelChangeDb <= -3 ? ` Speech level fell ${Math.abs(measured.speechLevelChangeDb)} dB, a sign of speech attenuation.` : '')
+    + (measured.speechLevelChangeDb !== null && measured.speechLevelChangeDb >= 3 ? ` The overall level rose ${measured.speechLevelChangeDb} dB (gain was applied), so compare the relative figures, not absolute dBFS.` : '');
+  return {before, after: aft, measured, measuredImprovement: improved, speechPreserved: speechKept, note};
+}
+
+// enhancer: 'local' (FFmpeg on this machine) or 'audo' (Audo AI cloud; caller must have checked enablement + consent).
+export async function analyzeNoise({bytes, mime, info, denoise = false, enhancer = 'local', fetcher = fetch, signal}) {
   const bin = await ffmpegPath();
   if (!bin) throw new NoiseError('FFMPEG_MISSING', 'Noise analysis needs FFmpeg, which is not available on this server. No result was produced.', 503);
   return withTemp(bytes, mime, async (file, dir) => {
@@ -64,23 +83,41 @@ export async function analyzeNoise({bytes, mime, info, denoise = false}) {
     const fileInfo = {durationSec: round(durationSec, 2), sampleRate: info?.audio?.sampleRate ?? null, channels: info?.audio?.channels ?? null, codec: info?.audio?.codec ?? null, analyzedChannel: 'first', analysisRateHz: SR, sizeBytes: bytes.length};
     let report = buildReport({sig, levels, file: fileInfo});
     if (!denoise) return {report, enhanced: null};
-    // Enhancement writes a separate file; the original is never modified.
+
+    if (enhancer === 'audo') {
+      // Cloud enhancement. On failure: report it and stop. No silent switch to local processing.
+      let result;
+      try { result = await audoRemoveNoise({bytes, mime, signal}, fetcher); }
+      catch (e) {
+        report = buildReport({sig, levels, file: fileInfo, enhancement: {requested: true, applied: false, provider: 'audo', method: null, reason: e instanceof AudoError ? e.message : 'Audo enhancement failed.', errorCode: e instanceof AudoError ? e.code : 'AUDO_FAILED', disclosure: AUDO_DISCLOSURE, note: 'The enhancement was not replaced with local processing. Run again with local processing if you want an enhanced copy that stays on this computer.'}});
+        return {report, enhanced: null};
+      }
+      const outFile = path.join(dir, 'audo-result.' + (result.mime === 'audio/wav' ? 'wav' : 'bin'));
+      await writeFile(outFile, result.bytes);
+      let after16, outInfo;
+      try { after16 = await decode(bin, outFile, path.join(dir, 'audo16.wav'), SR); outInfo = await probe(result.bytes, result.mime); }
+      catch { report = buildReport({sig, levels, file: fileInfo, enhancement: {requested: true, applied: false, provider: 'audo', method: null, reason: 'Audo returned audio that could not be decoded, so it was not used.', errorCode: 'AUDO_UNDECODABLE', disclosure: AUDO_DISCLOSURE}}); return {report, enhanced: null}; }
+      const outSec = after16.samples.length / SR;
+      const partial = outSec < durationSec - 1 ? {coveredSeconds: round(outSec, 1), totalSeconds: round(durationSec, 1)} : null;
+      // Compare like with like: when Audo only processed the start, measure the same span of the original.
+      const sigForCompare = partial ? analyzeSignal(x.subarray(0, after16.samples.length)) : sig;
+      const cmp = compare(sigForCompare, analyzeSignal(toFloat(after16.samples)));
+      report = buildReport({sig, levels, file: fileInfo, enhancement: {requested: true, applied: true, provider: 'audo', method: 'Audo AI remove-noise (cloud, audo.ai free tier)', filters: [], disclosure: AUDO_DISCLOSURE, partial,
+        output: {format: result.mime === 'audio/wav' ? 'WAV' : result.mime, sampleRate: outInfo?.audio?.sampleRate ?? null, channels: outInfo?.audio?.channels ?? null, sizeBytes: result.bytes.length, note: 'Returned by Audo as-is. Before/after figures are measured on 16 kHz mono renderings of both files.'},
+        ...cmp, note: cmp.note + (partial ? ` Audo's free tier processed only the first ${partial.coveredSeconds} s of ${partial.totalSeconds} s; the before/after figures cover that span, and the rest is not in the enhanced copy.` : '')}});
+      return {report, enhanced: {mime: result.mime, sampleRate: outInfo?.audio?.sampleRate ?? null, channels: outInfo?.audio?.channels ?? null, sizeBytes: result.bytes.length, bytes: result.bytes}};
+    }
+
+    // Local enhancement writes a separate file; the original is never modified.
     const filters = enhancementChain(report), outFile = path.join(dir, 'enhanced.wav');
     const {err, stderr} = await run(bin, ['-hide_banner', '-loglevel', 'error', '-y', '-i', file, '-vn', '-t', String(MAX_SECONDS + 5), '-af', filters.join(','), '-ac', '1', '-ar', String(SR), '-c:a', 'pcm_s16le', outFile], 120000);
     if (err) {
-      report = buildReport({sig, levels, file: fileInfo, enhancement: {requested: true, applied: false, reason: (stderr || 'Enhancement failed.').slice(0, 160), method: null}});
+      report = buildReport({sig, levels, file: fileInfo, enhancement: {requested: true, applied: false, provider: 'local', reason: (stderr || 'Enhancement failed.').slice(0, 160), method: null}});
       return {report, enhanced: null};
     }
-    const encoded = await readFile(outFile), enh = wavToInt16(encoded), after = analyzeSignal(toFloat(enh.samples));
-    const before = measure(sig), aft = measure(after);
-    const measured = {floorChangeDb: diff(before.floorDbfs, aft.floorDbfs), snrChangeDb: diff(before.snrDb, aft.snrDb), speechLevelChangeDb: diff(before.activeLevelDbfs, aft.activeLevelDbfs), humChangeDb: diff(before.humProminenceDb, aft.humProminenceDb)};
-    const improved = (measured.floorChangeDb !== null && measured.floorChangeDb <= -3) || (measured.snrChangeDb !== null && measured.snrChangeDb >= 3) || (measured.humChangeDb !== null && measured.humChangeDb <= -6);
-    const speechKept = before.speechDetected !== 'yes' || aft.speechDetected === 'yes';
-    const note = (improved ? 'Measured: the quiet-frame level dropped and/or the SNR estimate rose. Whether it sounds better is a listening judgement VOXA does not score. Denoising can also smear speech; analyse authenticity on the original.'
-      : 'No measurable improvement: the quiet-frame level, SNR estimate and hum prominence did not change enough (3 dB, 3 dB, 6 dB). Compare by ear before relying on the enhanced copy.')
-      + (speechKept ? '' : ' Warning: speech was detected in the original but not in the enhanced copy, so the enhancement may have damaged it.')
-      + (measured.speechLevelChangeDb !== null && measured.speechLevelChangeDb <= -3 ? ` Speech level fell ${Math.abs(measured.speechLevelChangeDb)} dB, a sign of speech attenuation.` : '');
-    report = buildReport({sig, levels, file: fileInfo, enhancement: {requested: true, applied: true, method: 'FFmpeg afwtdn (adaptive wavelet denoiser)' + (filters.some(f => f.startsWith('bandreject')) ? ' with mains-hum notch filters' : ''), filters, output: {format: 'WAV, 16-bit PCM', sampleRate: SR, channels: 1, sizeBytes: encoded.length, note: 'Mono first channel at 16 kHz, so before/after are comparable.'}, before, after: aft, measured, measuredImprovement: improved, speechPreserved: speechKept, note}});
+    const encoded = await readFile(outFile), enh = wavToInt16(encoded);
+    const cmp = compare(sig, analyzeSignal(toFloat(enh.samples)));
+    report = buildReport({sig, levels, file: fileInfo, enhancement: {requested: true, applied: true, provider: 'local', method: 'FFmpeg afwtdn (adaptive wavelet denoiser)' + (filters.some(f => f.startsWith('bandreject')) ? ' with mains-hum notch filters' : ''), filters, output: {format: 'WAV, 16-bit PCM', sampleRate: SR, channels: 1, sizeBytes: encoded.length, note: 'Mono first channel at 16 kHz, so before/after are comparable.'}, ...cmp}});
     return {report, enhanced: {mime: 'audio/wav', sampleRate: SR, channels: 1, sizeBytes: encoded.length, bytes: encoded}};
   });
 }
