@@ -1,0 +1,16 @@
+.rel-list{margin:0;padding-left:18px}
+.rel-list li{margin:4px 0}
+.nz-pair{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px}
+.nz-aud h3{margin:0 0 6px;font-size:13px;font-weight:600}
+.nz-aud audio{width:100%}
+.nz-ba{margin-top:12px}
+.nz-ba thead th{font:500 11px var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--mt-mut);text-align:left}
+.nz-code{font:12px var(--mono);word-break:break-word}
+.btn-noise{white-space:nowrap}
+@media(max-width:720px){.nz-pair{grid-template-columns:1fr}}
+.nr-list{margin:0;padding-left:18px;color:#374151;font-size:13px}
+.nr-list li{margin:7px 0}
+.nr-recent{list-style:none;margin:0;padding:0}
+.nr-recent li{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:9px 0;border-top:1px solid var(--mt-line);font-size:13px}
+.nr-recent li:first-child{border-top:0}
+.nr-recent span{color:var(--mt-mut)}

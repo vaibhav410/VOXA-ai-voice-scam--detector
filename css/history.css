@@ -26,3 +26,6 @@
 .hs-flags span{font-size:11px;background:#fff1f2;color:#9f1239;border:1px solid #fecdd3;border-radius:99px;padding:2px 8px}
 .hs-actions{display:flex;gap:8px;margin-top:10px}
 @media(max-width:720px){.hs-card{grid-template-columns:1fr}.hs-media{height:180px}}
+.hs-audio small{display:block;font:11px var(--sans);color:var(--mt-mut);margin:4px 0 2px}
+.hs-audio audio{height:32px}
+.hs-audio{height:auto;min-height:132px}

@@ -1,4 +1,6 @@
-window.makeSafety = function({$,esc,store,incidents,S,PRI,STATUS,pill,fmt,uid,toast}) {
+window.makeSafety = function({$,esc,store,incidents: allIncidents,S,PRI,STATUS,pill,fmt,uid,toast}) {
+ // Call statistics exclude noise reports (separate documents). The live-session writer gets the full list.
+ const incidents = () => allIncidents().filter(i => i.reportType !== 'noise_analysis');
  let clean=()=>{};
  const alerts=()=>store.get('alerts',[]);
  const advice=()=>`<div class="safety-guidance"><b>Pause before you act</b><p>Do not share OTPs, PINs or card details. Hang up and call back on an official number. Do not install remote-access apps.</p><a href="tel:1930">Financial cyber fraud in India: 1930</a> · <a href="https://cybercrime.gov.in/" target="_blank" rel="noopener">Report online</a></div>`;
@@ -229,7 +231,7 @@ window.makeSafety = function({$,esc,store,incidents,S,PRI,STATUS,pill,fmt,uid,to
    <div id="live-warning" class="live-warning" role="alert" aria-live="assertive" hidden></div>
    <div class="two report-signals"><section class="panelx"><h3>Live transcript</h3><p class="sub">Interim text may change. Warnings are provisional until verified.</p><div id="live-text" class="transcript-body">Start monitoring to see speech here.</div></section><section class="panelx"><h3>Current call risk</h3><div id="live-risk"><p class="sub">Waiting for speech…</p></div><h3>Session alerts</h3><div id="live-events" class="empty-state">No warnings yet.</div></section></div>${advice()}<p class="sub">Live mode assesses fraud intent from speech. Analyze a saved, consented recording separately for deepfake detection. Warnings depend on network speed and speech-recognition accuracy.</p></div>`;
  }
- function setupLive() { clean=setupVoxaLive({$,esc,store,incidents,S,PRI,pill,uid,toast}); }
+ function setupLive() { clean=setupVoxaLive({$,esc,store,incidents:allIncidents,S,PRI,pill,uid,toast}); }
  function Evaluation() {return `<div class="wrapv"><p class="report-eyebrow">Reproducible checks</p><h1>Evaluation lab</h1><p class="sub">Run labeled transcript scenarios locally. These results measure fraud-intent rules, not transcription or audio deepfake accuracy.</p><section class="panelx"><button class="btn" id="eval-run">Run scenario benchmark</button><div id="eval-result"></div></section><section class="panelx"><h3>Audio validation checklist</h3><p>Use consented human recordings only. Record language, noise and the expected fraud label. Evaluate genuine and fraudulent calls separately.</p><p>Run <code>npm run evaluate:audio -- path/to/manifest.json</code> with the documented manifest. The report includes end-to-end fraud accuracy, false-alarm rate, transcription word error rate, provider latency.</p><p class="sub">Live warning delay is measured separately during streamed tests. No human-audio accuracy or false-alarm rate is claimed until a labeled audio set is evaluated.</p><a class="link" href="#/live">Open live monitor</a></section></div>`;}
  function setupEvaluation() {
   $('#eval-run').onclick=()=>{

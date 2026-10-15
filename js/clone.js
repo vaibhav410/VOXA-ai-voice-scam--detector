@@ -16,7 +16,7 @@ window.makeClone = function (c) {
     detect: { cta: 'Analyze media', ctaHref: '#/analyze', groups: [
       ['Overview', [['Dashboard', '⌂', '#/call-safety'], ['Analyze media', '', '#/analyze'], ['History', '', '#/history']]],
       ['Products', [['Meetings', '▭', '#/meetings'], ['Deepfake Detect Reports', '◉', '#/reports'], ['Chrome Extension', '◍', '#/chrome-extension'], ['Integrations', '▦', '#/integrations']]],
-      ['Models', [['Intelligence', '◎', '#/intelligence'], ['Signal', '⛉', '#/signal'], ['Watermarking', '⚑', '#/watermarking']]],
+      ['Models', [['Intelligence', '◎', '#/intelligence'], ['Signal', '⛉', '#/signal'], ['Watermarking', '⚑', '#/watermarking'], ['Noise reduction', '', '#/noise']]],
       ['Manage', [['API Keys', '⚷', '#/api-keys'], ['Manage Team', '☷', '#/team'], ['Settings', '⚙', '#/settings']]]] }
   };
 

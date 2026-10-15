@@ -7,6 +7,7 @@ import {detect,extractText,transcribe,liveness,intelligence,missing} from './ser
 import {detectRD,RD_EXT} from './server/realitydefender.mjs';
 import {PROVIDERS,freeModeOn,blockReason} from './server/free-mode.mjs';
 import {sniff,KIND,probe,extractAudio,ffmpegPath} from './server/media.mjs';
+import {analyzeNoise,NoiseError} from './server/noise.mjs';
 import './js/meeting-links.js';
 const MeetingLinks = globalThis.VoxaMeetingLinks;
 import {attachLive} from './server/live.mjs';
@@ -87,6 +88,36 @@ export function createServer(keys={}, fetcher=fetch) {
      let text;try{text=JSON.parse(Buffer.concat(chunks).toString('utf8')).text;}catch{return json(400,{error:'Invalid request.'});}
      if(typeof text!=='string' || text.trim().length<20) return json(400,{error:'A transcript of at least a few words is required.'});
      return json(200,{intelligence:await intelligence({text:text.trim(),keys,model:process.env.GEMINI_MODEL || 'gemini-2.5-flash'},fetcher)});
+    } finally {busy=false;}
+   }
+   // Noise analysis: separate from authenticity/scam analysis. Local only (FFmpeg + JS DSP), no provider keys, no network.
+   if(url.pathname === '/api/noise' && req.method === 'POST') {
+    if(!(req.headers.origin === url.origin || (extOrigin() && req.headers.origin === extOrigin())) || req.headers['x-voxa-request'] !== '1') return fail(403,'FORBIDDEN','Open VOXA on this server to analyze.');
+    if(busy) return fail(429,'BUSY','Another analysis is running. Try again when it finishes.');
+    const declared=(req.headers['content-type'] || '').split(';')[0];
+    if(!['audio/wav','audio/x-wav','audio/mpeg','audio/flac','audio/ogg','audio/mp4','audio/webm'].includes(declared)) return fail(415,'UNSUPPORTED_TYPE','Noise analysis accepts audio files only (wav, mp3, flac, ogg, m4a, webm).');
+    const max=20*1048576;
+    if(Number(req.headers['content-length'])>max) return fail(413,'TOO_LARGE',`File exceeds the ${max/1048576} MB limit for audio.`);
+    busy=true;
+    try {
+     const chunks=[];let size=0;
+     for await(const chunk of req){size+=chunk.length;if(size>max)return fail(413,'TOO_LARGE',`File exceeds the ${max/1048576} MB limit for audio.`);chunks.push(chunk);}
+     if(!size) return fail(400,'EMPTY_FILE','The file is empty. Select a non-empty audio file.');
+     const bytes=Buffer.concat(chunks),sn=sniff(bytes);
+     if(!sn) return fail(415,'UNRECOGNIZED_MEDIA','This is not a recognizable audio file. It may be corrupted or the wrong format.');
+     if(!sn.kinds.includes('audio')) return fail(415,'TYPE_MISMATCH',`The file content is ${sn.kinds[0]}, not audio.`);
+     const mime=['video/mp4','video/webm','video/quicktime'].includes(sn.type) ? declared : sn.type;
+     let info;try {info=await probe(bytes,mime);} catch {info={available:true,readable:false};}
+     if(!info.available) return fail(503,'FFMPEG_MISSING','Noise analysis needs FFmpeg, which is not available on this server. No result was produced.');
+     if(!info.readable) return fail(422,'UNREADABLE_MEDIA','This file could not be decoded. It may be corrupted or use an unsupported codec.');
+     if(!info.audio) return fail(422,'NO_AUDIO','This file has no audio track.');
+     if(info.duration!==null && info.duration<1) return fail(422,'TOO_SHORT','The audio is shorter than 1 second.');
+     if(info.duration!==null && info.duration>300) return fail(422,'TOO_LONG','Noise analysis accepts audio up to 5 minutes.');
+     const {report,enhanced}=await analyzeNoise({bytes,mime,info,denoise:url.searchParams.get('denoise')==='1'});
+     return json(200,{noise:report,enhancedAudio:enhanced ? {mime:enhanced.mime,sampleRate:enhanced.sampleRate,channels:enhanced.channels,sizeBytes:enhanced.sizeBytes,base64:enhanced.bytes.toString('base64')} : null});
+    } catch(e) {
+     if(e instanceof NoiseError) return fail(e.status,e.code,e.message);
+     throw e;
     } finally {busy=false;}
    }
    if(['/api/analyze','/api/transcribe'].includes(url.pathname) && req.method === 'POST') {

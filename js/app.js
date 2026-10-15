@@ -53,12 +53,19 @@
   const incidents = () => store.get('incidents', []);
   setInterval(()=>{store.get('alerts',[]);const reports=incidents();const [,route,id]=(location.hash||'').split('/');if(route==='incident' && !reports.some(r=>r.id===id))render();},60000);
   const uid = () => 'INC-' + Date.now().toString(36).toUpperCase().slice(-6) + Math.random().toString(36).slice(2, 4).toUpperCase();
+  const upid = () => 'UP-' + uid().slice(4);
+  // Report types. New reports store the type; older saved reports derive it, so nothing needs migrating.
+  const RT = { voice_authenticity: 'Voice authenticity', scam_analysis: 'Scam analysis', noise_analysis: 'Noise analysis', image_authenticity: 'Image authenticity', video_authenticity: 'Video authenticity' };
+  const reportTypeOf = i => i.reportType || (i.media?.source === 'live' || !i.media ? 'scam_analysis' : { voice: 'voice_authenticity', image: 'image_authenticity', video: 'video_authenticity' }[i.modality || 'voice'] || 'voice_authenticity');
+  window.VoxaReportType = reportTypeOf; window.VoxaReportTypes = RT;
+  // Read-only dashboards describe calls; noise reports are separate documents. Writers keep the full list.
+  const callIncidents = () => incidents().filter(i => reportTypeOf(i) !== 'noise_analysis');
   const fmt = t => new Date(t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 
-  const C = makeClone({ esc, store, toast, $, incidents, S, pill, PRI, STATUS, fmt, rerender: () => render() });
+  const C = makeClone({ esc, store, toast, $, incidents: callIncidents, S, pill, PRI, STATUS, fmt, rerender: () => render() });
   const Safety = makeSafety({$,esc,store,incidents,S,PRI,STATUS,pill,fmt,uid,toast});
-  const Mod = makeModules({$,esc,store,incidents,S,PRI,pill,fmt,toast});
-  window.VoxaMeetings = makeMeetings({$,esc,store,incidents,PRI,pill,fmt,toast});
+  const Mod = makeModules({$,esc,store,incidents:callIncidents,S,PRI,pill,fmt,toast});
+  window.VoxaMeetings = makeMeetings({$,esc,store,incidents:callIncidents,PRI,pill,fmt,toast});
   window.VoxaIntentGraphs = intentGraphs;
 
   /* ---------- shell ---------- */
@@ -133,13 +140,14 @@
         ${modality === 'video' ? '<label title="Checks the audio track separately; uses one extra scan"><input type="checkbox" id="a-soundtrack"> Check soundtrack</label>' : ''}
         ${modality === 'image' ? '<label title="Luxand, JPG/PNG portraits only"><input type="checkbox" id="a-live"> Face liveness</label>' : ''}
         <label title="Otherwise the report stays in this tab only"><input type="checkbox" id="a-retain"> Keep report 24 h</label>
+        ${modality === 'voice' ? '<label title="With Analyze Noise: also create a separate enhanced copy using real noise reduction. The original is never changed."><input type="checkbox" id="a-denoise"> Create enhanced copy (noise removal)</label>' : ''}
         <details class="an-labels"><summary>Labels</summary><div id="a-tags">${Object.entries(S).filter(([k]) => k !== sector).map(([k, v]) => `<label><input type="checkbox" value="${k}"> ${esc(v.name)}</label>`).join('')}</div></details></section>
       <div class="an-foot"><div id="service-status" class="service-chips">Checking services…</div>
-        <div class="an-actions"><span id="a-state" role="status" aria-live="polite"></span><button class="mt-btn" id="a-cancel" hidden>Cancel</button><button class="mt-btn primary" id="a-go">Analyze</button></div></div>
+        <div class="an-actions"><span id="a-state" role="status" aria-live="polite"></span><button class="mt-btn" id="a-cancel" hidden>Cancel</button>${modality === 'voice' ? '<button class="mt-btn" id="a-noise" type="button" title="Measure background noise and audio quality. Creates a separate noise report; the voice report is not affected.">Analyze Noise</button>' : ''}<button class="mt-btn primary" id="a-go">${modality === 'voice' ? 'Analyze Voice' : 'Analyze'}</button></div></div>
       <p class="an-note">Files go to the selected providers, are not stored by VOXA, and may use provider credits.</p></div>`;
   }
   function setupAnalyze() {
-    mediaMeta = null; let url, rec, chunks = [], timer, selectedBlob, disposed = false, micStream, lastExtraction, requestController, mediaVersion=0, recordingStart=0,micPending=false;
+    mediaMeta = null; let url, rec, chunks = [], timer, selectedBlob, uploadId = null, disposed = false, micStream, lastExtraction, requestController, mediaVersion=0, recordingStart=0,micPending=false;
     cleanupAnalyze = () => { disposed = true;sel.disabled=false; requestController?.abort(); clearInterval(timer); if (rec?.state === 'recording') rec.stop(); micStream?.getTracks().forEach(t => t.stop()); if(prev?.pause)prev.pause();if (url) URL.revokeObjectURL(url); };
     const controls=[...document.querySelectorAll('#view input,#view select,#view textarea,#view button')].filter(e=>e.id!=='a-cancel');
     const busy=on=>{if(disposed)return;controls.forEach(e=>e.disabled=on);sel.disabled=on;$('#a-cancel').hidden=!on;};
@@ -160,7 +168,7 @@
     const sz = b => (b.size / 1048576).toFixed(2) + ' MB';
     const use = (blob, name) => {
       const version=++mediaVersion;
-      mediaMeta = null;
+      mediaMeta = null;uploadId = upid();
       if(lastExtraction && $('#a-text').value===lastExtraction.text)$('#a-text').value='';
       lastExtraction=null;$('#a-transcript-state').textContent='';
       selectedBlob = blob;
@@ -231,12 +239,34 @@
         micStream = stream;
         rec = new MediaRecorder(stream); chunks = []; const t0 = Date.now();recordingStart=t0;let recordedBytes=0;
         rec.ondataavailable = ev => {chunks.push(ev.data);recordedBytes+=ev.data.size;if(recordedBytes>25*1048576 && rec.state==='recording')rec.stop();};
-        rec.onstop = () => { clearInterval(timer); stream.getTracks().forEach(t => t.stop()); if (disposed) return; b.textContent = '● Record from mic'; $('#a-go').disabled = $('#a-transcribe').disabled = $('#a-file').disabled = false; const ext = rec.mimeType.includes('mp4') ? 'm4a' : rec.mimeType.includes('ogg') ? 'ogg' : 'webm'; use(new Blob(chunks, { type: rec.mimeType }), 'recording.' + ext); };
+        rec.onstop = () => { clearInterval(timer); stream.getTracks().forEach(t => t.stop()); if (disposed) return; b.textContent = '● Record from mic'; $('#a-go').disabled = $('#a-transcribe').disabled = $('#a-file').disabled = false; if ($('#a-noise')) $('#a-noise').disabled = false; const ext = rec.mimeType.includes('mp4') ? 'm4a' : rec.mimeType.includes('ogg') ? 'ogg' : 'webm'; use(new Blob(chunks, { type: rec.mimeType }), 'recording.' + ext); };
         rec.start(1000); b.textContent = '■ Stop (recording 0s)';
-        $('#a-go').disabled = $('#a-transcribe').disabled = $('#a-file').disabled = true;
+        $('#a-go').disabled = $('#a-transcribe').disabled = $('#a-file').disabled = true; if ($('#a-noise')) $('#a-noise').disabled = true;
         timer = setInterval(() => {const seconds=Math.round((Date.now()-t0)/1000);b.textContent=`Stop recording · ${seconds}s`;if(seconds>=600 && rec.state==='recording'){rec.stop();toast('Recording stopped at the 10-minute limit.');}},500);
       } catch { if(!disposed)toast('Microphone permission was denied or recording is unavailable.'); }
       finally {micPending=false;if(!disposed)b.disabled=false;}
+    });
+    // Analyze Noise: independent of the voice analysis. Local FFmpeg + DSP only; no provider is called.
+    $('#a-noise')?.addEventListener('click', async () => {
+      if (!mediaMeta || !selectedBlob) return toast('Add an audio recording first.');
+      if (!$('#a-consent').checked) return toast('Confirm consent before analyzing this recording.');
+      const st = $('#a-state'), lockedMedia = mediaMeta, lockedBlob = selectedBlob, lockedUploadId = uploadId, lockSector = sector;
+      const wantEnhanced = $('#a-denoise').checked, retainReport = $('#a-retain').checked;
+      if (lockedBlob.size > 20 * 1048576) { st.textContent = 'Noise analysis accepts audio up to 20 MB.'; return; }
+      const signal = beginRequest();
+      st.dataset.state = 'uploading'; st.textContent = 'Uploading… 0%';
+      let response;
+      try {
+        response = await postBlob('/api/noise?denoise=' + (wantEnhanced ? '1' : '0'), lockedBlob, mediaMime(), signal, f => { if (disposed) return; st.dataset.state = f < 1 ? 'uploading' : 'processing'; st.textContent = f < 1 ? `Uploading… ${Math.round(f * 100)}%` : wantEnhanced ? 'Measuring noise and creating the enhanced copy…' : 'Measuring noise and audio quality…'; });
+      } catch (e) { if (!disposed) { st.dataset.state = 'failed'; st.textContent = e.name === 'AbortError' ? 'Noise analysis canceled. No report was saved.' : e.name === 'TimeoutError' ? 'Noise analysis timed out. Please try again.' : e.message || 'The analysis server is unavailable.'; busy(false); } return; }
+      if (disposed) return;
+      if (!response.ok) { st.dataset.state = response.status === 415 || response.status === 422 ? 'unsupported' : 'failed'; st.textContent = response.data.error || 'Noise analysis failed.'; busy(false); return; }
+      const { noise, enhancedAudio } = response.data;
+      if (!noise?.speech || !noise?.quality) { st.dataset.state = 'failed'; st.textContent = 'The server returned an incomplete noise report. Nothing was saved.'; busy(false); return; }
+      const savedId = saveNoiseReport({ noise, enhancedAudio, media: lockedMedia, blob: lockedBlob, uploadId: lockedUploadId, retain: retainReport, sector: lockSector });
+      if (!savedId) { busy(false); return; }
+      st.dataset.state = 'completed';
+      location.hash = '#/incident/' + savedId;
     });
     $('#a-go').onclick = async () => {
       if (mediaMeta && !$('#a-consent').checked) return toast('Confirm consent before analyzing this recording.');
@@ -245,7 +275,7 @@
       if (!text && !mediaMeta) return toast(`Add ${modality === 'voice' ? 'audio' : 'a ' + modality} or text first.`);
       const btn = $('#a-go'); btn.disabled = true;
       const st = $('#a-state'), lockSector = sector, lockMod = modality, M = MODS[lockMod];
-      const lockedMedia = mediaMeta, lockedBlob = selectedBlob;
+      const lockedMedia = mediaMeta, lockedBlob = selectedBlob, lockedUploadId = uploadId;
       const retainReport=$('#a-retain').checked;
       const tags = [...document.querySelectorAll('#a-tags input:checked')].map(x => x.value);
       let remote;
@@ -277,6 +307,7 @@
       if (disposed) return;
       const inc = {
         id: uid(), at: Date.now(), modality: lockMod, sector: lockSector, policyVersion: S[lockSector].version,
+        reportType: lockedMedia ? { voice: 'voice_authenticity', image: 'image_authenticity', video: 'video_authenticity' }[lockMod] : 'scam_analysis', uploadId: lockedMedia ? lockedUploadId : null,
         tags,
         priority: intent.priority, intent, transcript: text ? {text,source:transcriptSource} : null, media: lockedMedia && { ...lockedMedia, mime: lockedBlob?.type || mediaMime(), sha256, ...audioInfo }, status: 'open', notes: [],
         authenticity: remote?.authenticity || (lockedMedia
@@ -311,28 +342,49 @@
 
   function Incidents() {
     return `<div class="wrapv"><p class="report-eyebrow">Review your findings</p><h1>Call reports</h1><p class="sub">Search and filter saved analyses. VOXA does not persist raw media. Selected providers receive uploads; their retention policies apply.</p>
-      <div class="filters"><input id="f-q" aria-label="Search reports" placeholder="Search ID or text…"><select id="f-src" aria-label="Filter source"><option value="">All sources</option><option value="uploaded">Uploaded media</option><option value="live">Live sessions</option></select><select id="f-m" aria-label="Filter media type"><option value="">All types</option>${Object.entries(MODS).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('')}</select><select id="f-s" aria-label="Filter sector"><option value="">All sectors</option>${Object.entries(S).map(([k, v]) => `<option value="${k}">${esc(v.name)}</option>`).join('')}</select>
+      <div class="filters"><input id="f-q" aria-label="Search reports" placeholder="Search ID or text…"><select id="f-src" aria-label="Filter source"><option value="">All sources</option><option value="uploaded">Uploaded media</option><option value="live">Live sessions</option></select><select id="f-rt" aria-label="Filter report type"><option value="">All report types</option>${Object.entries(RT).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select><select id="f-m" aria-label="Filter media type"><option value="">All types</option>${Object.entries(MODS).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('')}</select><select id="f-s" aria-label="Filter sector"><option value="">All sectors</option>${Object.entries(S).map(([k, v]) => `<option value="${k}">${esc(v.name)}</option>`).join('')}</select>
       <select id="f-p" aria-label="Filter action priority"><option value="">All priorities</option>${Object.entries(PRI).map(([k, v]) => `<option value="${k}">${v[0]}</option>`).join('')}</select>
       <select id="f-t" aria-label="Filter report status"><option value="">All statuses</option>${Object.entries(STATUS).map(([k, v]) => `<option value="${k}">${v[0]}</option>`).join('')}</select>
       <input type="date" id="f-d" aria-label="Date"></div><div id="inc-table"></div></div>`;
   }
   function setupIncidents() {
     const draw = () => {
-      const q = $('#f-q').value.toLowerCase(), mf = $('#f-m').value, s = $('#f-s').value, p = $('#f-p').value, t = $('#f-t').value, d = $('#f-d').value, sr = $('#f-src').value;
-      const list = incidents().filter(i => (!q || [i.id,i.media?.name,i.transcript?.text,i.intent.rules.map(r=>r.excerpt).join(' ')].filter(Boolean).join(' ').toLowerCase().includes(q)) && (!s || i.sector === s) && (!mf || modOf(i) === mf) && (!sr || (sr === 'live') === (i.media?.source === 'live')) && (!p || i.priority === p) && (!t || i.status === t) && (!d || new Date(i.at).toLocaleDateString('en-CA') === d));
-      $('#inc-table').innerHTML = list.length ? `<div class="tw"><table class="t"><thead><tr><th>Call</th><th>Date</th><th>Type</th><th>Sector</th><th>Priority</th><th>State</th><th>Status</th></tr></thead><tbody>${list.map(i => `<tr class="click" data-open="${esc(i.id)}"><td><a href="#/incident/${encodeURIComponent(i.id)}">${esc(i.meeting?.title || i.media?.name || "Text analysis")}</a><small>${esc(i.id)}</small></td><td>${fmt(i.at)}</td><td>${MODS[modOf(i)].label}</td><td>${esc(S[i.sector]?.name || i.sector)}</td><td>${pill(PRI, i.priority)}</td><td>${esc(i.state)}</td><td>${pill(STATUS, i.status)}</td></tr>`).join('')}</tbody></table></div>`
+      const q = $('#f-q').value.toLowerCase(), mf = $('#f-m').value, rt = $('#f-rt').value, s = $('#f-s').value, p = $('#f-p').value, t = $('#f-t').value, d = $('#f-d').value, sr = $('#f-src').value;
+      const list = incidents().filter(i => (!q || [i.id,i.media?.name,i.transcript?.text,i.intent.rules.map(r=>r.excerpt).join(' ')].filter(Boolean).join(' ').toLowerCase().includes(q)) && (!s || i.sector === s) && (!mf || modOf(i) === mf) && (!rt || reportTypeOf(i) === rt) && (!sr || (sr === 'live') === (i.media?.source === 'live')) && (!p || i.priority === p) && (!t || i.status === t) && (!d || new Date(i.at).toLocaleDateString('en-CA') === d));
+      $('#inc-table').innerHTML = list.length ? `<div class="tw"><table class="t"><thead><tr><th>Call</th><th>Date</th><th>Report type</th><th>Media</th><th>Sector</th><th>Priority</th><th>State</th><th>Status</th></tr></thead><tbody>${list.map(i => `<tr class="click" data-open="${esc(i.id)}"><td><a href="#/incident/${encodeURIComponent(i.id)}">${esc(i.meeting?.title || i.media?.name || "Text analysis")}</a><small>${esc(i.id)}</small></td><td>${fmt(i.at)}</td><td>${esc(RT[reportTypeOf(i)])}</td><td>${MODS[modOf(i)].label}</td><td>${esc(S[i.sector]?.name || i.sector)}</td><td>${reportTypeOf(i) === 'noise_analysis' ? '—' : pill(PRI, i.priority)}</td><td>${esc(i.state)}</td><td>${pill(STATUS, i.status)}</td></tr>`).join('')}</tbody></table></div>`
         : `<div class="panelx"><p class="sub" style="margin:0">No reports match these filters. Try a different search, or run a new analysis.</p></div>`;
     };
     try { const pre = sessionStorage.getItem('voxa:search'); if (pre) { $('#f-q').value = pre; sessionStorage.removeItem('voxa:search'); } } catch {}
     { const pre = location.hash.split('/')[2]; if (pre === 'live' || pre === 'uploaded') $('#f-src').value = pre; }
-    ['f-q', 'f-src', 'f-m', 'f-s', 'f-p', 'f-t', 'f-d'].forEach(id => ($('#' + id).oninput = draw)); draw();
+    ['f-q', 'f-src', 'f-rt', 'f-m', 'f-s', 'f-p', 'f-t', 'f-d'].forEach(id => ($('#' + id).oninput = draw)); draw();
   }
 
   const previews = new Map();
   window.VoxaPreviews = previews;
+  const revokePreview = id => { const pv = previews.get(id); if (pv) { if (pv.url) URL.revokeObjectURL(pv.url); if (pv.enhancedUrl) URL.revokeObjectURL(pv.enhancedUrl); previews.delete(id); } };
+  window.VoxaRevokePreview = revokePreview;
   const pct = v => typeof v === 'number' && Number.isFinite(v) ? (Math.round(v * 10000) / 100).toFixed(2) + '%' : null;
   const table = list => `<table class="kvt"><tbody>${list.filter(r => r[1] !== null && r[1] !== undefined && r[1] !== '').map(([k, v, raw]) => `<tr><th scope="row">${esc(k)}</th><td>${raw ? v : esc(v)}</td></tr>`).join('')}</tbody></table>`;
   const section = (title, body, note) => `<section class="rep-sec"><h2>${esc(title)}</h2>${note ? `<p class="rep-note">${esc(note)}</p>` : ''}${body}</section>`;
+  const NR = makeNoiseReport({ esc, fmt, incidents, previews, section, table, session, reportTypeOf, RT, STATUS });
+  // One place that turns a /api/noise result into a saved report (used by Analyze Noise and the Noise reduction page).
+  function saveNoiseReport({ noise, enhancedAudio, media, blob, uploadId, retain, sector: sec }) {
+    const inc = {
+      id: uid(), at: Date.now(), reportType: 'noise_analysis', uploadId, processing: 'completed', modality: 'voice',
+      sector: sec, policyVersion: S[sec].version, tags: [], status: 'open', notes: [],
+      priority: 'nee', intent: { status: 'insufficient', score: 0, rules: [], words: 0 }, transcript: null,
+      media: { ...media, mime: blob.type || media.mime || 'audio/wav', sampleRate: noise.file.sampleRate, channels: noise.file.channels },
+      authenticity: { status: 'unavailable', code: 'NOT_APPLICABLE', message: 'Voice authenticity is a separate report. This report measures noise and audio quality only.' },
+      noise, state: 'complete', limitations: noise.limitations.join(' '),
+      persist: retain, expiresAt: Date.now() + 86400000, consentedAt: Date.now()
+    };
+    let enhancedUrl = null;
+    if (enhancedAudio?.base64) { try { enhancedUrl = URL.createObjectURL(new Blob([Uint8Array.from(atob(enhancedAudio.base64), ch => ch.charCodeAt(0))], { type: enhancedAudio.mime })); } catch {} }
+    if (!store.set('incidents', [inc, ...incidents()])) { if (enhancedUrl) URL.revokeObjectURL(enhancedUrl); return null; }
+    previews.set(inc.id, { url: URL.createObjectURL(blob), kind: 'voice', enhancedUrl });
+    return inc.id;
+  }
+  const NP = makeNoisePage({ $, esc, incidents, fmt, reportTypeOf, postBlob, saveNoiseReport, setCleanup: fn => { cleanupAnalyze = fn; }, getSector: () => sector, upid, toast });
   const INTEL_ROWS = [['language','Language'],['dialect','Dialect'],['speakers','Speaker info'],['tone','Tone'],['context','Context'],['message','Message'],['translation','Translation (English)']];
   // Scam-intent graphs. Everything is computed from the rule matches of this report; nothing is estimated.
   const IG_CAT = {
@@ -374,6 +426,7 @@
   function Incident(id) {
     const i = incidents().find(x => x.id === id);
     if (!i) return `<div class="wrapv"><h1>Report not found</h1><p class="sub">It may have been deleted. <a class="link" href="#/incidents">Back to call reports</a></p></div>`;
+    if (reportTypeOf(i) === 'noise_analysis' && i.noise) return NR.view(i);
     const mod = modOf(i), M = MODS[mod], sec = S[i.sector], it = i.intent;
     const audioOnly = i.authenticity?.status !== 'ok' && i.audioAuthenticity?.status === 'ok';
     const au = audioOnly ? i.audioAuthenticity : i.authenticity;
@@ -424,6 +477,7 @@
       ${i.context?.provider ? section('Additional checks', `<p class="rep-note" style="margin:0">${esc(i.context.message)}</p>${i.context.details ? `<pre class="context-response">${esc(i.context.details)}</pre>` : ''}`) : ''}
       ${section('Safe next steps · ' + sec.name, `<ul style="margin:0;padding-left:18px">${VOXA_SAFE_STEPS.map(s => `<li>${esc(s)}</li>`).join('')}</ul>`)}
       ${stream.includes('<tr>') ? section('Media details', stream) : ''}
+      ${NR.related(i)}
       <section class="rep-sec no-print"><h2>Status and notes</h2>
         <div class="filters" style="margin-top:0"><select id="i-status" aria-label="Report status">${Object.entries(STATUS).map(([k, v]) => `<option value="${k}" ${i.status === k ? 'selected' : ''}>${v[0]}</option>`).join('')}</select></div>
         ${i.notes.map(n => `<div class="ev"><small>${fmt(n.at)}</small>${esc(n.text)}</div>`).join('')}
@@ -456,7 +510,9 @@
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = id + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     };
     $('#i-pdf').onclick = () => window.print();
-    const pv = previews.get(id); if (pv && pv.kind === 'voice') drawWave($('#i-wave'), pv.url);
+    const pv = previews.get(id);
+    if (pv && pv.kind === 'voice' && $('#i-wave')) drawWave($('#i-wave'), pv.url);
+    if (pv?.enhancedUrl && $('#i-wave2')) drawWave($('#i-wave2'), pv.enhancedUrl);
     $('#i-intel')?.addEventListener('click', async e => {
       const b = e.currentTarget, st = $('#i-intel-state'), r = incidents().find(x => x.id === id); b.disabled = true; st.textContent = 'Analyzing transcript with Gemini…';
       try {
@@ -469,7 +525,7 @@
     let armed = false;
     $('#i-del').onclick = e => {
       if (!armed) { armed = true; e.target.textContent = 'Click again to confirm delete'; return; }
-      if (previews.has(id)) { URL.revokeObjectURL(previews.get(id).url); previews.delete(id); } store.set('incidents', incidents().filter(x => x.id !== id)); store.set('alerts',store.get('alerts',[]).filter(x=>x.incidentId!==id)); location.hash = '#/incidents';
+      revokePreview(id); store.set('incidents', incidents().filter(x => x.id !== id)); store.set('alerts',store.get('alerts',[]).filter(x=>x.incidentId!==id)); location.hash = '#/incidents';
     };
   }
 
@@ -489,8 +545,8 @@
     $('#s-wipe').onclick = e => { if (!armed) { armed = true; e.target.textContent = 'Click again to confirm'; return; } store.del('incidents'); store.del('alerts'); toast('All reports and alerts deleted.'); armed = false; e.target.textContent = 'Delete all reports'; };
   }
   /* ---------- router ---------- */
-  const Hist = makeHistory({$,esc,store,incidents,PRI,pill,STATUS,toast});
-  const OWN = { history:['History',Hist.View,Hist.setup], 'call-safety':['Call safety dashboard',Safety.Dashboard,Safety.setupDashboard], live:['Live monitor',Safety.Live,Safety.setupLive], meetings:['Meetings',Safety.Meetings,Safety.setupMeetings], integrations:['Integrations',Mod.Integrations,Mod.setupIntegrations], intelligence:['Intelligence',Mod.Intelligence,Mod.setupIntelligence], signal:['Signal',Mod.Signal,Mod.setupSignal], watermarking:['Watermarking',Mod.Watermarking,Mod.setupWatermarking], 'chrome-extension':['Chrome extension',Mod.ChromeExtension,Mod.setupChromeExtension], evaluation:['Evaluation',Safety.Evaluation,Safety.setupEvaluation], analyze: ['New analysis', Analyze, setupAnalyze], incidents: ['Call reports', Incidents, setupIncidents], settings: ['Settings', Settings, setupSettings] };
+  const Hist = makeHistory({$,esc,store,incidents,PRI,pill,STATUS,toast,reportTypeOf,RT});
+  const OWN = { history:['History',Hist.View,Hist.setup], noise:['Noise reduction',NP.View,NP.setup], 'call-safety':['Call safety dashboard',Safety.Dashboard,Safety.setupDashboard], live:['Live monitor',Safety.Live,Safety.setupLive], meetings:['Meetings',Safety.Meetings,Safety.setupMeetings], integrations:['Integrations',Mod.Integrations,Mod.setupIntegrations], intelligence:['Intelligence',Mod.Intelligence,Mod.setupIntelligence], signal:['Signal',Mod.Signal,Mod.setupSignal], watermarking:['Watermarking',Mod.Watermarking,Mod.setupWatermarking], 'chrome-extension':['Chrome extension',Mod.ChromeExtension,Mod.setupChromeExtension], evaluation:['Evaluation',Safety.Evaluation,Safety.setupEvaluation], analyze: ['New analysis', Analyze, setupAnalyze], incidents: ['Call reports', Incidents, setupIncidents], settings: ['Settings', Settings, setupSettings] };
   function tabFor(route) {
     if (route === 'live') return 'live';
     if (['incidents','evaluation'].includes(route)) return 'reports';
@@ -504,6 +560,7 @@
   $('#fs')?.addEventListener('click', () => { try { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); } catch {} });
   // Sidebar icons (stroke SVG, matched by label)
   const NAV_SVG = {
+    denoise: '<path d="M3 12h2l1.5-5 2 10 2-12 2 14 1.5-7h1.5"/><path d="M17 12h4"/>',
     grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
     shield: '<path d="M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6z"/><path d="m9 12 2 2 4-4"/>',
     upload: '<path d="M12 16V4m0 0-4 4m4-4 4 4M5 20h14"/>',
@@ -521,7 +578,7 @@
   };
   const navIcon = label => {
     const l = label.toLowerCase();
-    const k = /call safety|^dashboard|overview/.test(l) ? (l.includes('call safety') ? 'shield' : 'grid') : /analy|upload/.test(l) ? 'upload' : /live|speech|meeting|voice|tts|text-to/.test(l) ? 'mic' : /report|incident|flagged|history/.test(l) ? 'file' : /evaluat|intellig/.test(l) ? 'flask' : /setting/.test(l) ? 'gear' : /key/.test(l) ? 'key' : /team|users|voices/.test(l) ? 'users' : /integrat|chrome|agent/.test(l) ? 'puzzle' : /investig/.test(l) ? 'search' : /watermark|library/.test(l) ? 'layers' : /project|enhance/.test(l) ? 'video' : /signal/.test(l) ? 'wave' : 'grid';
+    const k = /noise/.test(l) ? 'denoise' : /call safety|^dashboard|overview/.test(l) ? (l.includes('call safety') ? 'shield' : 'grid') : /analy|upload/.test(l) ? 'upload' : /live|speech|meeting|voice|tts|text-to/.test(l) ? 'mic' : /report|incident|flagged|history/.test(l) ? 'file' : /evaluat|intellig/.test(l) ? 'flask' : /setting/.test(l) ? 'gear' : /key/.test(l) ? 'key' : /team|users|voices/.test(l) ? 'users' : /integrat|chrome|agent/.test(l) ? 'puzzle' : /investig/.test(l) ? 'search' : /watermark|library/.test(l) ? 'layers' : /project|enhance/.test(l) ? 'video' : /signal/.test(l) ? 'wave' : 'grid';
     return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${NAV_SVG[k]}</svg>`;
   };
   function render() {

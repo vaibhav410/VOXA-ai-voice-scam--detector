@@ -69,6 +69,42 @@ Run `npm run evaluate:rules` and open the Evaluation page. Audio test setup, res
 
 Website audit and redesign: [AUDIT.md](AUDIT.md). Public pages and the workspace self-host Inter and Geist Mono fonts; no external font request is needed. Font licenses are bundled under `assets/fonts/`. Workspace entry uses an optional display name, not a password or hosted account.
 
+## Noise analysis (separate report)
+
+On the **Voice** tab, a selected recording has two independent actions:
+
+- **Analyze Voice**: the existing authenticity + transcript + scam-intent analysis.
+- **Analyze Noise**: audio quality and background noise. It makes its own **Noise analysis report** and never touches the voice report. Tick **Create enhanced copy** to also get a denoised file.
+
+Both reports from one selected file share an `uploadId` and link to each other under "Related reports".
+
+There is also a dedicated **Noise reduction** page (sidebar, under Models, `#/noise`): upload audio, tick or untick the enhanced copy, and it opens the same Noise analysis report. It uses the same endpoint and the same saver as the button above.
+
+**How it works (free, local, no provider):** `POST /api/noise` decodes with FFmpeg and measures with JavaScript DSP (`server/noise-core.mjs`, `server/noise.mjs`). No API key is used and nothing leaves the machine. It has the same protections as `/api/analyze`: local origin plus `X-Voxa-Request`, byte sniffing (not the file name), a 20 MB / 1 s to 5 min limit, one job at a time, FFmpeg timeouts, and a private temp directory that is removed on success and failure. Without FFmpeg it returns `503 FFMPEG_MISSING` and no result.
+
+**What each result means, and what it is not:**
+
+| Result | Method | Honest limit |
+| --- | --- | --- |
+| Speech detected (Yes / No / Uncertain) | Sustained pitch-periodic (voiced) frames whose pitch moves like speech | **Not Silero VAD** or any trained model. Music or singing can read as speech; whispered or very noisy speech can be missed |
+| Noise level and noise floor | Quietest steady frames; SNR basis when available, otherwise absolute level | Noise only under continuous speech cannot be separated. Digitally silent pauses mean the floor is not measurable (a noise gate looks the same) |
+| SNR | Speech power minus floor power over floor power | Reported only with detected speech, a stable measured floor, and speech clearly above it; otherwise `Unavailable`. Within about 3 dB of truth on the test set; not calibrated |
+| Indicators | Mains hum (50/60 Hz tonal peak), high-frequency hiss-like energy, low-frequency rumble | Descriptive only. Sources such as traffic or a fan are never named; crackle and static are not detected |
+| Clipping, peak, RMS, silence | Samples of the first channel | First channel only |
+| Quality rating and suitability | Transparent rules shown in the report | No numeric score |
+
+If a value cannot be measured the report says `Unavailable` or `Insufficient evidence`; it never invents one.
+
+**Enhancement:** FFmpeg `afwtdn` (adaptive wavelet denoiser), plus notch filters at the detected hum frequency and a 80 Hz high-pass for rumble. The original is never modified. The enhanced copy is a separate mono 16 kHz WAV, so before/after are comparable, and the report shows the measured change in noise floor, SNR, speech level and hum, and whether speech is still detected. The setting was chosen by measurement (FFmpeg `afftdn` with noise tracking left white noise untouched, and with a fixed floor barely moved pink noise); on the test set `afwtdn` lowered the quiet level about 16 dB at a speech-level cost of 0.5 to 3 dB (about 5 dB at 0 dB SNR input, which the report flags). It reports "No measurable improvement" when that is the case (for example already clean speech). Whether it sounds better is a listening judgement VOXA does not score, and denoising can smear speech: analyse **authenticity on the original**, not the enhanced copy.
+
+**Why not librosa or Silero VAD:** librosa needs Python and Silero VAD needs an ONNX runtime (`onnxruntime-node` alone is about 300 MB); both would add a second runtime to a Node app. The FFmpeg + JS approach needs only what the app already ships. Either can be added behind the same report schema later.
+
+**Persistence and privacy:** reports follow the app's existing rules (this tab session by default, optional 24 h local retention). Audio is never stored, so after a reload the report reopens from storage but the players and download are gone and the report says so. There are no user accounts in this local app: access control is the existing local-only origin/Host check, and a report lives only in the browser that made it.
+
+**Report types and schema.** Every report has a `reportType`: `voice_authenticity`, `scam_analysis`, `noise_analysis`, plus `image_authenticity` and `video_authenticity` for the other media. New reports store it; older saved reports derive it on read (no migration needed): no media or a live session is `scam_analysis`, otherwise the media type decides. New optional fields: `reportType`, `uploadId`, `processing`, and for noise reports a `noise` object (the full report: `speech`, `noise`, `levels`, `clipping`, `silence`, `quality`, `recommendation`, `enhancement`, `evidence`, `limitations`). Existing fields and URLs (`#/incident/<id>`) are unchanged; noise reports use the same URL form. Call dashboards exclude noise reports. History and Call reports have a report-type filter. Export is the existing JSON export and Print/PDF; JSON holds measurements, never audio.
+
+**Tests and evaluation:** `npm test` (the noise tests use real speech from the Windows built-in voices and skip those cases elsewhere). `node tools/evaluate-noise.mjs [--denoise]` prints estimates next to ground truth. `node tools/crawler/noise-e2e.mjs <url>` drives the real UI in a browser.
+
 ## Intelligence, Signal, Watermarking and the Chrome extension
 
 - **Intelligence** (`#/intelligence`): for each saved report, shows voice/image/video authenticity, scam intent and transcription as three separate assessments with provider, status, timestamps and processing errors. Scores appear only when the provider returned them.

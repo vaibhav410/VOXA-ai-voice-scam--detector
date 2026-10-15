@@ -21,7 +21,7 @@ export function sniff(b) {
 export const KIND = {voice: 'audio', image: 'image', video: 'video'};
 const EXT = {'audio/wav': 'wav', 'audio/mpeg': 'mp3', 'audio/flac': 'flac', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a', 'audio/webm': 'webm', 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov'};
 
-const run = (bin, args, timeout = 60000) => new Promise((resolve, reject) => execFile(bin, args, {timeout, maxBuffer: 8 * 1048576, windowsHide: true}, (err, stdout, stderr) => err && !stderr ? reject(err) : resolve({err, stdout, stderr})));
+export const run = (bin, args, timeout = 60000) => new Promise((resolve, reject) => execFile(bin, args, {timeout, maxBuffer: 8 * 1048576, windowsHide: true}, (err, stdout, stderr) => err && !stderr ? reject(err) : resolve({err, stdout, stderr})));
 let cached;
 export async function ffmpegPath() {
   if (process.env.VOXA_NO_FFMPEG === '1') return null;
@@ -35,7 +35,7 @@ export async function ffmpegPath() {
 export const resetFfmpegCache = () => { cached = undefined; };
 
 // Raw media only touches a private temp directory for the duration of one call.
-async function withTemp(bytes, mime, fn) {
+export async function withTemp(bytes, mime, fn) {
   const dir = await mkdtemp(path.join(tmpdir(), 'voxa-'));
   try {
     const file = path.join(dir, 'in.' + (EXT[mime] || 'bin'));
